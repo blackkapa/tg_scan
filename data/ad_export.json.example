@@ -1,0 +1,14 @@
+[
+  {
+    "cn": "Иванов Иван Иванович",
+    "mail": "ivan.ivanov@company.ru",
+    "sAMAccountName": "iivanov",
+    "objectSid": "S-1-5-21-..."
+  },
+  {
+    "cn": "Петрова Мария Сергеевна",
+    "mail": "maria.petrova@company.ru",
+    "sAMAccountName": "mpetrova",
+    "objectSid": "S-1-5-21-..."
+  }
+]

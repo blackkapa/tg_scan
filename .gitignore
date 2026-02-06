@@ -1,0 +1,18 @@
+# Секреты (токен, пароли)
+config.ini
+
+# Данные (выгрузка AD, обработанные реестры)
+ad_export.json
+data/ad_export.json
+data/registry_processed.json
+data/processed/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Логи
+*.log
