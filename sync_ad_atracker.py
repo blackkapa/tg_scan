@@ -139,7 +139,7 @@ async def run_sync() -> Dict[str, int]:
     from atracker_client import ATrackerClient
     import config
 
-    stats = {"updated": 0, "skipped": 0, "only_ad": 0, "only_atracker": 0, "errors": 0}
+    stats = {"updated": 0, "skipped": 0, "created": 0, "only_ad": 0, "only_atracker": 0, "errors": 0}
 
     # Загрузка AD
     ad_users = load_ad()
@@ -152,6 +152,7 @@ async def run_sync() -> Dict[str, int]:
     # Клиент A-Tracker
     list_id = getattr(config, "ATRACKER_EMPLOYEES_LIST_SERVICE_ID", None)
     update_id = getattr(config, "ATRACKER_EMPLOYEE_UPDATE_SERVICE_ID", None)
+    add_id = getattr(config, "ATRACKER_EMPLOYEE_ADD_SERVICE_ID", None)
     if not list_id or not update_id:
         logger.warning("Не заданы ATRACKER_EMPLOYEES_LIST_SERVICE_ID или ATRACKER_EMPLOYEE_UPDATE_SERVICE_ID")
         return stats
@@ -166,6 +167,7 @@ async def run_sync() -> Dict[str, int]:
         asset_info_service_id=getattr(config, "ATRACKER_ASSET_INFO_SERVICE_ID", None),
         employees_list_service_id=list_id,
         employee_update_service_id=update_id,
+        employee_add_service_id=add_id,
     )
 
     # Загрузка сотрудников A-Tracker
@@ -181,10 +183,37 @@ async def run_sync() -> Dict[str, int]:
     by_pers_no, by_email, by_fio = build_atracker_index(atr_employees)
     matched_atr_ids = set()
 
+    allowed_domain = (getattr(config, "EMAIL_DOMAIN_ALLOWED", "") or "asg.ru").lower().strip()
+    if not allowed_domain.startswith("@"):
+        allowed_domain = "@" + allowed_domain
+
     for ad_user in ad_users:
         match = find_atracker_match(ad_user, by_pers_no, by_email, by_fio)
         if not match:
-            stats["only_ad"] += 1
+            # Сотрудник не найден в A-Tracker — это новый, создаём
+            ad_fio, ad_login, ad_mail, ad_pers_no = ad_values(ad_user)
+            if not ad_fio and not ad_login and not ad_mail:
+                stats["only_ad"] += 1
+                continue
+            if ad_mail and not ad_mail.lower().endswith(allowed_domain):
+                stats["only_ad"] += 1
+                continue
+            if not add_id:
+                stats["only_ad"] += 1
+                logger.debug("Новый сотрудник %s — ATRACKER_EMPLOYEE_ADD_SERVICE_ID не задан", ad_fio or ad_login)
+                continue
+            try:
+                await client.create_employee(
+                    s_full_name=ad_fio,
+                    s_login_name=ad_login,
+                    s_email=ad_mail,
+                    s_pers_no=ad_pers_no,
+                )
+                stats["created"] += 1
+                logger.info("Создан новый сотрудник: %s (%s)", ad_fio or ad_login, ad_mail or ad_login)
+            except Exception as e:
+                logger.warning("Ошибка создания сотрудника %s: %s", ad_fio or ad_login, e)
+                stats["errors"] += 1
             continue
 
         atr_id = match.get("ID")
@@ -218,9 +247,10 @@ async def run_sync() -> Dict[str, int]:
 
     stats["only_atracker"] = len(atr_employees) - len(matched_atr_ids)
     logger.info(
-        "Синхронизация завершена: обновлено=%d, без изменений=%d, только в AD=%d, только в A-Tracker=%d, ошибок=%d",
+        "Синхронизация завершена: обновлено=%d, без изменений=%d, создано=%d, только в AD=%d, только в A-Tracker=%d, ошибок=%d",
         stats["updated"],
         stats["skipped"],
+        stats["created"],
         stats["only_ad"],
         stats["only_atracker"],
         stats["errors"],

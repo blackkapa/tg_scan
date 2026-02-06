@@ -54,6 +54,7 @@ ATRACKER_UPLOAD_DOC_SERVICE_ID = 3
 ATRACKER_ASSET_INFO_SERVICE_ID = 4
 ATRACKER_EMPLOYEES_LIST_SERVICE_ID = 5
 ATRACKER_EMPLOYEE_UPDATE_SERVICE_ID = 6
+ATRACKER_EMPLOYEE_ADD_SERVICE_ID = 7  # Создание нового сотрудника (если нет в A-Tracker)
 
 # --- Пути ---
 AD_EXPORT_PATH = _get("paths", "ad_export", "ad_export.json")

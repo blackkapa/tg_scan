@@ -26,6 +26,7 @@ class ATrackerClient:
         asset_info_service_id: Optional[int] = None,
         employees_list_service_id: Optional[int] = None,
         employee_update_service_id: Optional[int] = None,
+        employee_add_service_id: Optional[int] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.username = username
@@ -36,6 +37,7 @@ class ATrackerClient:
         self.asset_info_service_id = asset_info_service_id
         self.employees_list_service_id = employees_list_service_id
         self.employee_update_service_id = employee_update_service_id
+        self.employee_add_service_id = employee_add_service_id
 
         self._token: Optional[str] = None
         self._token_exp: Optional[datetime.datetime] = None
@@ -256,6 +258,36 @@ class ATrackerClient:
             url = f"{self.base_url}/Api/Service?id={self.employee_update_service_id}"
             payload = {
                 "ID": employee_id,
+                "sFullName": s_full_name or "",
+                "sLoginName": s_login_name or "",
+                "sEmail": s_email or "",
+                "sPersNo": (s_pers_no or "").strip(),
+            }
+            async with session.post(url, headers=headers, json=payload) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+        if data.get("returnCode") != "Success":
+            raise RuntimeError(f"A-Tracker error: {data.get('message')}")
+        return data
+
+    async def create_employee(
+        self,
+        s_full_name: str,
+        s_login_name: str,
+        s_email: str,
+        s_pers_no: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Создать нового сотрудника в A-Tracker (sFullName, sLoginName, sEmail, sPersNo)."""
+        if not self.employee_add_service_id:
+            raise RuntimeError("ATRACKER_EMPLOYEE_ADD_SERVICE_ID not set")
+        async with aiohttp.ClientSession() as session:
+            await self._ensure_token(session)
+            headers = {
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+            }
+            url = f"{self.base_url}/Api/Service?id={self.employee_add_service_id}"
+            payload = {
                 "sFullName": s_full_name or "",
                 "sLoginName": s_login_name or "",
                 "sEmail": s_email or "",
