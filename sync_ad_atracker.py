@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Синхронизация AD → A-Tracker (односторонняя).
-Загрузка пользователей AD из JSON-файла (выгрузка PowerShell), сверка по sPersNo → почта → ФИО,
-обновление в A-Tracker: sFullName, sLoginName, sEmail, sPersNo (табельный номер = objectSid). ID не меняется.
-"""
-
 import asyncio
 import json
 import logging
@@ -15,17 +8,12 @@ logger = logging.getLogger(__name__)
 
 
 def _norm(s: Optional[str]) -> str:
-    """Нормализация строки для сравнения: нижний регистр, пробелы по краям."""
     if s is None:
         return ""
     return (s or "").strip().lower()
 
 
 def load_ad_from_file(path: str) -> List[Dict[str, Any]]:
-    """
-    Загрузить пользователей AD из JSON-файла.
-    Ожидаемый формат: массив объектов с полями cn, mail, sAMAccountName, objectSid (опционально).
-    """
     if not path or not os.path.isfile(path):
         return []
     with open(path, "r", encoding="utf-8-sig") as f:
@@ -36,7 +24,6 @@ def load_ad_from_file(path: str) -> List[Dict[str, Any]]:
 
 
 def load_ad() -> List[Dict[str, Any]]:
-    """Загрузить пользователей AD из JSON-файла (config.AD_EXPORT_PATH; при exe — рядом с exe)."""
     import config
     import sys
     path = getattr(config, "AD_EXPORT_PATH", "") or ""
@@ -51,12 +38,6 @@ def load_ad() -> List[Dict[str, Any]]:
 def build_atracker_index(
     employees: List[Dict[str, Any]],
 ) -> Tuple[Dict[str, Dict], Dict[str, Dict], Dict[str, Dict]]:
-    """
-    Индексы для сверки с AD (приоритет: sPersNo → почта → ФИО).
-    by_pers_no: табельный номер (sPersNo) — уникальный ключ, по нему обновляем ФИО без потери техники.
-    by_email: почта (sEmail); используется, если sPersNo не проставлен.
-    by_fio: ФИО (sFullName); используется, если нет ни sPersNo, ни почты.
-    """
     by_pers_no: Dict[str, Dict] = {}
     by_email: Dict[str, Dict] = {}
     by_fio: Dict[str, Dict] = {}
@@ -87,11 +68,6 @@ def find_atracker_match(
     by_email: Dict[str, Dict],
     by_fio: Dict[str, Dict],
 ) -> Optional[Dict[str, Any]]:
-    """
-    Найти сотрудника в A-Tracker по данным из AD.
-    Приоритет: 1) sPersNo (objectSid) — уникальный, по нему ловим смену ФИО без потери техники;
-    2) если sPersNo не проставлен — по почте; 3) если почты нет — по ФИО.
-    """
     ad_sid = (ad_user.get("objectSid") or ad_user.get("ObjectSid") or "") or ""
     if isinstance(ad_sid, list):
         ad_sid = (ad_sid[0] or "") if ad_sid else ""
@@ -132,10 +108,6 @@ def ad_values(ad_user: Dict[str, Any]) -> Tuple[str, str, str, str]:
 
 
 async def run_sync() -> Dict[str, int]:
-    """
-    Выполнить синхронизацию AD → A-Tracker.
-    Возвращает счётчики: updated, skipped, only_ad, only_atracker, errors.
-    """
     from atracker_client import ATrackerClient
     import config
 
@@ -259,7 +231,6 @@ async def run_sync() -> Dict[str, int]:
 
 
 def run_sync_sync() -> Dict[str, int]:
-    """Синхронная обёртка для run_sync (для вызова из планировщика и т.п.)."""
     return asyncio.run(run_sync())
 
 

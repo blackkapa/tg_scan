@@ -56,23 +56,17 @@ class ATrackerClient:
 
         self._token = data["token"]
         self._refresh_token = data.get("refreshToken")
-        # expiration приходит в ISO‑формате, пример: 2021-12-31T23:59:59Z
         exp_str = str(data["expiration"])
         if exp_str.endswith("Z"):
             exp_str = exp_str.replace("Z", "+00:00")
         self._token_exp = datetime.datetime.fromisoformat(exp_str)
 
     async def _ensure_token(self, session: aiohttp.ClientSession) -> None:
-        """Проверить токен и при необходимости перелогиниться."""
         now = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
         if not self._token or not self._token_exp or now >= self._token_exp:
             await self._login(session)
 
     async def get_assets_by_fio(self, fio: str) -> List[Dict[str, Any]]:
-        """
-        Вызов сервиса A-Tracker, который возвращает список активов по ФИО.
-        Ожидается, что сервис настроен как GET и принимает параметр fio.
-        """
         async with aiohttp.ClientSession() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
@@ -96,12 +90,6 @@ class ATrackerClient:
         tg_user_id: int,
         tg_username: Optional[str],
     ) -> Dict[str, Any]:
-        """
-        Вызов сервиса A-Tracker, который отмечает инвентаризацию актива.
-        В текущей конфигурации сервис настроен как GET и ожидает
-        параметры в URL:
-        ?AssetId=123&Fio=...&TelegramUserId=...&TelegramUsername=...
-        """
         async with aiohttp.ClientSession() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
@@ -128,16 +116,6 @@ class ATrackerClient:
         content_bytes: bytes,
         content_type: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Загрузка файла в документы ИТ-актива через отдельный API-сервис.
-        Ожидается, что сервис настроен как POST JSON и принимает:
-        {
-            "AssetId": 123,
-            "FileName": "asset_123.jpg",
-            "ContentBase64": "<base64>",
-            "ContentType": "image/jpeg"
-        }
-        """
         encoded = base64.b64encode(content_bytes).decode("ascii")
         async with aiohttp.ClientSession() as session:
             await self._ensure_token(session)
@@ -161,11 +139,6 @@ class ATrackerClient:
         return data
 
     async def get_asset_info(self, asset_id: int) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        """
-        Получить информацию об активе по ID (название, владелец ФИО).
-        Возвращает (info, None) при успехе, (None, "not_found") если актив не найден в базе,
-        (None, "service_error") если сервис не ответил JSON (редирект на Login, не настроен и т.д.).
-        """
         if not self.asset_info_service_id:
             return (None, "service_error")
         async with aiohttp.ClientSession() as session:
@@ -184,7 +157,6 @@ class ATrackerClient:
             )
             async with session.get(url, headers=headers, params=params) as resp:
                 resp.raise_for_status()
-                # A-Tracker при истёкшем токене/неверном сервисе редиректит на Login → HTML
                 ct = resp.headers.get("Content-Type") or ""
                 if "application/json" not in ct:
                     logger.warning(
@@ -223,7 +195,6 @@ class ATrackerClient:
         )
 
     async def get_employees(self) -> List[Dict[str, Any]]:
-        """Список сотрудников из A-Tracker (itamEmplDept): ID, sFullName, sLoginName, sEmail."""
         if not self.employees_list_service_id:
             return []
         async with aiohttp.ClientSession() as session:
@@ -246,7 +217,6 @@ class ATrackerClient:
         s_email: str,
         s_pers_no: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Обновить сотрудника в A-Tracker по ID (sFullName, sLoginName, sEmail, sPersNo — табельный номер / objectSid из AD)."""
         if not self.employee_update_service_id:
             raise RuntimeError("ATRACKER_EMPLOYEE_UPDATE_SERVICE_ID not set")
         async with aiohttp.ClientSession() as session:
@@ -277,7 +247,6 @@ class ATrackerClient:
         s_email: str,
         s_pers_no: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Создать нового сотрудника в A-Tracker (sFullName, sLoginName, sEmail, sPersNo)."""
         if not self.employee_add_service_id:
             raise RuntimeError("ATRACKER_EMPLOYEE_ADD_SERVICE_ID not set")
         async with aiohttp.ClientSession() as session:
