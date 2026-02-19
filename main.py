@@ -11,9 +11,13 @@ import sys
 from datetime import datetime, time, timedelta
 
 if getattr(sys, "frozen", False):
+    # Модули (bot, aiohttp...) — только в _MEIPASS. Папку exe в path НЕ ставить первой.
+    _meipass = getattr(sys, "_MEIPASS", "")
+    if _meipass and _meipass not in sys.path:
+        sys.path.insert(0, _meipass)
     _exe_dir = os.path.dirname(sys.executable)
     if _exe_dir not in sys.path:
-        sys.path.insert(0, _exe_dir)
+        sys.path.append(_exe_dir)
     os.chdir(_exe_dir)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -55,10 +59,22 @@ async def _registry_loop() -> None:
 
 async def _run_bot_with_scheduler() -> None:
     """Бот + фоновые задачи 01:00 и 07:00."""
-    from bot import dp, bot
     asyncio.create_task(_sync_loop())
     asyncio.create_task(_registry_loop())
-    await dp.start_polling(bot)
+    await _bot_dp.start_polling(_bot_instance)
+
+
+# Импорт бота один раз при старте (в exe отложенный import внутри async падает)
+_bot_dp = None
+_bot_instance = None
+
+
+def _ensure_bot_imported() -> None:
+    global _bot_dp, _bot_instance
+    if _bot_dp is None:
+        import bot as _bot_mod
+        _bot_dp = _bot_mod.dp
+        _bot_instance = _bot_mod.bot
 
 
 def main() -> None:
@@ -70,6 +86,7 @@ def main() -> None:
         asyncio.run(run_registry_check.main())
         return
 
+    _ensure_bot_imported()
     try:
         asyncio.run(_run_bot_with_scheduler())
     except Exception as e:

@@ -1,19 +1,26 @@
 @echo off
 chcp 65001 >nul
-REM Один exe: бот + сверка AD в 01:00 + реестр в 07:00
-REM Запуск в папке проекта: build_all.bat
+REM Один exe в dist\tg_scan.exe. Рядом: config.ini, data\
+REM Сборка: build_all.bat (закройте старый exe перед сборкой)
 
 echo ============================================
-echo   Сборка tg_scan.exe (бот + сверка + реестр)
+echo   Сборка одного exe: tg_scan.exe
 echo ============================================
 echo.
 
-pip install pyinstaller -q
-pyinstaller --noconfirm tg_scan.spec
+if exist .venv\Scripts\pyinstaller.exe (
+    .venv\Scripts\pyinstaller.exe --noconfirm tg_scan.spec
+) else (
+    pip install pyinstaller -q
+    pyinstaller --noconfirm tg_scan.spec
+)
 if %ERRORLEVEL% NEQ 0 (exit /b 1)
 
+if exist config.example.ini copy /Y config.example.ini dist\
+if not exist dist\data mkdir dist\data
+
 echo.
-echo Готово: dist\tg_scan.exe
-echo Рядом с exe: config.ini, config.example.ini, data\, ad_export.json
-echo По умолчанию — бот; сверка AD каждый день 01:00, реестр 07:00.
-echo Только реестр: tg_scan.exe --registry
+echo Готово: dist\tg_scan.exe (один файл)
+echo Рядом с exe: config.ini, папка data\
+echo Режим только реестр: tg_scan.exe --registry [путь]
+pause

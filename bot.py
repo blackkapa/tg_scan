@@ -105,16 +105,10 @@ def kb_inventory() -> ReplyKeyboardMarkup:
     )
 
 
-def inline_kb_start_over():
-    builder = InlineKeyboardBuilder()
-    builder.button(text="Начать заново", callback_data="start_over")
-    return builder.as_markup()
-
-
 def kb_reporting() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Отправить")],
+            [KeyboardButton(text="Отправить заявку")],
             [KeyboardButton(text="Отмена")],
         ],
         resize_keyboard=True,
@@ -152,9 +146,28 @@ def _identifier_prompt(user_id: Optional[int]) -> str:
             "код не требуется."
         )
     return (
-        "Введите <b>корпоративную почту</b> (@asg.ru), <b>ФИО</b> или <b>логин</b> (без ovp\)  — "
+        r"Введите <b>корпоративную почту</b> (@asg.ru), <b>ФИО</b> или <b>логин</b> (без ovp)  — "
         "на почту придёт код для входа."
     )
+
+
+def _format_username(from_user) -> str:
+    """Форматирует username для подписи в заявках: @username или id или «—»."""
+    if not from_user:
+        return "—"
+    if getattr(from_user, "username", None):
+        return f"@{from_user.username}"
+    return str(getattr(from_user, "id", "—"))
+
+
+async def _safe_delete_message(msg: Optional[Message]) -> None:
+    """Удаляет сообщение бота; при ошибке (например, уже удалено) молча игнорирует."""
+    if not msg:
+        return
+    try:
+        await bot.delete_message(chat_id=msg.chat.id, message_id=msg.message_id)
+    except TelegramBadRequest:
+        pass
 
 
 @dp.message(CommandStart())
@@ -168,7 +181,6 @@ async def cmd_start(message: Message, state: FSMContext):
         + _identifier_prompt(user_id),
         reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer("Или нажмите кнопку ниже:", reply_markup=inline_kb_start_over())
     await state.set_state(InvStates.waiting_identifier)
 
 
@@ -188,7 +200,6 @@ async def btn_start_over(message: Message, state: FSMContext):
         _identifier_prompt(user_id),
         reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer("Или нажмите кнопку ниже:", reply_markup=inline_kb_start_over())
     await state.set_state(InvStates.waiting_identifier)
 
 
@@ -211,7 +222,6 @@ async def callback_start_over(callback: CallbackQuery, state: FSMContext):
             _identifier_prompt(user_id),
             reply_markup=ReplyKeyboardRemove(),
         )
-        await callback.message.answer("Или нажмите кнопку ниже:", reply_markup=inline_kb_start_over())
     await callback.answer()
     await state.set_state(InvStates.waiting_identifier)
 
@@ -286,6 +296,10 @@ def build_assets_list_message(
     assets: List[Dict],
     include_start_inventory: bool = False,
 ) -> tuple:
+    # Показывать «Начать инвентаризацию», если есть хотя бы один непроведённый актив
+    if not include_start_inventory and assets:
+        include_start_inventory = any(not _is_asset_inventoried(a) for a in assets)
+
     text_lines = ["<b>Ваши активы:</b>\n"]
     kb = InlineKeyboardBuilder()
 
@@ -322,7 +336,9 @@ async def _return_to_asset_list(
     cancel_text: str,
     *,
     remove_reply_keyboard: bool = False,
+    message_to_delete: Optional[Message] = None,
 ) -> None:
+    await _safe_delete_message(message_to_delete)
     data = await state.get_data()
     assets = data.get("assets") or {}
     await state.set_state(InvStates.waiting_fio)
@@ -336,7 +352,72 @@ async def _return_to_asset_list(
         text_lines, kb = build_assets_list_message(assets_list, include_start_inventory=False)
         await answer_fn("\n".join(text_lines), reply_markup=kb.as_markup())
     else:
-        await answer_fn("Начать заново:", reply_markup=inline_kb_start_over())
+        await state.set_state(InvStates.waiting_identifier)
+        await answer_fn("Введите ФИО, логин или почту (@asg.ru) — на почту придёт код для входа.")
+
+
+async def _send_to_report_group(
+    report_text: str,
+    photos: List[str],
+    submitter_user_id: int,
+    log_label: str = "заявка",
+) -> Tuple[bool, Optional[str]]:
+    """
+    Отправляет текст и фото в группу заявок, регистрирует в report_message_to_user.
+    Возвращает (True, None) при успехе, (False, сообщение_об_ошибке) при ошибке.
+    """
+    try:
+        sent_text = await bot.send_message(REPORT_GROUP_ID, report_text)
+        report_message_to_user[(REPORT_GROUP_ID, sent_text.message_id)] = submitter_user_id
+        logging.info("Сохранена %s: chat_id=%s, msg_id=%s, user_id=%s", log_label, REPORT_GROUP_ID, sent_text.message_id, submitter_user_id)
+        if len(photos) == 1:
+            sent_photo = await bot.send_photo(REPORT_GROUP_ID, photos[0])
+            report_message_to_user[(REPORT_GROUP_ID, sent_photo.message_id)] = submitter_user_id
+        elif len(photos) > 1:
+            media = [InputMediaPhoto(media=fid) for fid in photos]
+            sent_media = await bot.send_media_group(REPORT_GROUP_ID, media)
+            for m in sent_media:
+                report_message_to_user[(REPORT_GROUP_ID, m.message_id)] = submitter_user_id
+        return (True, None)
+    except TelegramBadRequest as e:
+        logging.exception("Ошибка при отправке %s в группу", log_label)
+        err = str(e).lower()
+        if "chat not found" in err or "chat_not_found" in err:
+            return (False, "Не удалось отправить. Обратитесь к системотехнику.")
+        return (False, "Не удалось отправить. Попробуйте позже.")
+    except Exception:
+        logging.exception("Ошибка при отправке %s в группу", log_label)
+        return (False, "Не удалось отправить. Попробуйте позже.")
+
+
+async def _return_user_to_asset_list_after_report(
+    state: FSMContext,
+    submitter_user_id: int,
+    answer_fn,
+    success_message: str,
+    *,
+    remove_reply_keyboard: bool = False,
+) -> None:
+    """После успешной отправки заявки в группу: сброс состояния, возврат к списку активов."""
+    data = await state.get_data()
+    fio = data.get("fio", "—")
+    assets = data.get("assets") or {}
+    await state.clear()
+    await state.set_state(InvStates.waiting_fio)
+    await state.update_data(fio=fio, assets=assets)
+    if submitter_user_id in user_to_group_thread:
+        del user_to_group_thread[submitter_user_id]
+    if remove_reply_keyboard:
+        await answer_fn(success_message, reply_markup=ReplyKeyboardRemove())
+    else:
+        await answer_fn(success_message)
+    if assets:
+        assets_list = list(assets.values())
+        text_lines, kb = build_assets_list_message(assets_list, include_start_inventory=False)
+        await answer_fn("\n".join(text_lines), reply_markup=kb.as_markup())
+    else:
+        await state.set_state(InvStates.waiting_identifier)
+        await answer_fn("Введите ФИО, логин или почту (@asg.ru) — на почту придёт код для входа.")
 
 
 @dp.message(F.text, StateFilter(InvStates.waiting_identifier))
@@ -400,7 +481,7 @@ async def handle_code(message: Message, state: FSMContext):
         return
     result = check_code(code)
     if not result:
-        await message.answer("Код неверный или истёк. Запросите новый: нажмите «Начать заново» и введите ФИО/логин/почту снова.")
+        await message.answer("Код неверный или истёк. Введите ФИО/логин/почту снова для нового кода.")
         return
     fio, email = result
     await state.update_data(fio=fio)
@@ -434,7 +515,7 @@ async def handle_fio(message: Message, state: FSMContext):
     data = await state.get_data()
     if data.get("assets"):
         await message.answer(
-            "Чтобы искать по другому сотруднику, нажмите «Завершить», затем «Начать заново» и введите ФИО."
+            "Чтобы искать по другому сотруднику, нажмите «Завершить», затем введите ФИО другого сотрудника."
         )
         return
 
@@ -506,10 +587,7 @@ async def handle_asset_click(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     if callback.message:
         chat_id = callback.message.chat.id
-        try:
-            await bot.delete_message(chat_id=chat_id, message_id=callback.message.message_id)
-        except TelegramBadRequest:
-            pass
+        await _safe_delete_message(callback.message)
         # Для актива без инвентаризации добавляем кнопку «Нет наклейки с QR»
         reply_markup = None
         if not is_inventoried:
@@ -561,13 +639,16 @@ async def wrong_qr_finish(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     assets = data.get("assets") or {}
     if not assets:
+        await state.set_state(InvStates.waiting_identifier)
         if callback.message:
-            await callback.message.edit_reply_markup(reply_markup=None)
-            await callback.message.answer("Список активов недоступен. Нажмите «Начать заново» или отправьте /start.")
+            await _safe_delete_message(callback.message)
+            await callback.message.answer(
+                "Список активов недоступен. Введите ФИО, логин или почту (@asg.ru) для входа или отправьте /start."
+            )
         return
     await state.set_state(InvStates.waiting_fio)
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _safe_delete_message(callback.message)
         assets_list = list(assets.values())
         text_lines, kb = build_assets_list_message(assets_list, include_start_inventory=False)
         await callback.message.answer(
@@ -633,8 +714,7 @@ async def no_qr_submit(callback: CallbackQuery, state: FSMContext):
     asset_name = data.get("no_qr_asset_name", "")
     asset_serial = data.get("no_qr_asset_serial", "-")
     fio = data.get("fio", "—")
-    username = callback.from_user.username if callback.from_user else None
-    username_str = f"@{username}" if username else (str(callback.from_user.id) if callback.from_user else "—")
+    username_str = _format_username(callback.from_user)
     date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
     report_text = (
         "<b>Нет наклейки с QR</b>\n\n"
@@ -697,7 +777,7 @@ async def no_qr_submit(callback: CallbackQuery, state: FSMContext):
     await state.update_data(no_qr_asset_id=None, no_qr_asset_name=None, no_qr_asset_serial=None, no_qr_photos=None)
     await callback.answer()
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _safe_delete_message(callback.message)
         msg = "Отправлено! После проверки инженерами информация в системе учёта будет обновлена."
         if upload_errors:
             msg += f"\n\nФото отправлены в группу. В карточку актива не удалось загрузить {upload_errors} фото."
@@ -718,9 +798,9 @@ async def no_qr_cancel(callback: CallbackQuery, state: FSMContext):
     await state.update_data(no_qr_asset_id=None, no_qr_asset_name=None, no_qr_asset_serial=None, no_qr_photos=None)
     await callback.answer()
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
         await _return_to_asset_list(
-            state, callback.message.answer, "Заявка отменена."
+            state, callback.message.answer, "Заявка отменена.",
+            message_to_delete=callback.message,
         )
 
 
@@ -765,9 +845,9 @@ async def start_identify_device(callback: CallbackQuery, state: FSMContext):
 async def cancel_identify_device(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
         await _return_to_asset_list(
-            state, callback.message.answer, "Идентификация отменена."
+            state, callback.message.answer, "Идентификация отменена.",
+            message_to_delete=callback.message,
         )
 
 
@@ -857,18 +937,19 @@ async def identify_device_photo(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data == "finish_session", StateFilter(InvStates.waiting_fio))
 async def finish_session(callback: CallbackQuery, state: FSMContext):
-    """Кнопка «Завершить» — прощание и сброс сессии."""
+    """Кнопка «Завершить» — сброс сессии и сразу приглашение ввести ФИО (без кнопки «Начать заново»)."""
     await state.clear()
     if callback.from_user and callback.from_user.id in user_to_group_thread:
         del user_to_group_thread[callback.from_user.id]
+    user_id = callback.from_user.id if callback.from_user else None
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await _safe_delete_message(callback.message)
         await callback.message.answer(
             "Спасибо за обращение! 👋\n\n"
-            "Чтобы снова начать — нажмите кнопку ниже.",
+            + _identifier_prompt(user_id),
             reply_markup=ReplyKeyboardRemove(),
         )
-        await callback.message.answer("Начать заново:", reply_markup=inline_kb_start_over())
+    await state.set_state(InvStates.waiting_identifier)
     await callback.answer()
 
 
@@ -901,8 +982,7 @@ async def _send_report_to_group(message: Message, state: FSMContext, extra_info:
     data = await state.get_data()
     photos: List[str] = data.get("report_photos") or []
     fio = data.get("fio", "—")
-    username = message.from_user.username if message.from_user else None
-    username_str = f"@{username}" if username else (str(message.from_user.id) if message.from_user else "—")
+    username_str = _format_username(message.from_user)
     date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
     extra_display = (extra_info or "").strip() or "—"
 
@@ -915,55 +995,19 @@ async def _send_report_to_group(message: Message, state: FSMContext, extra_info:
     )
 
     submitter_user_id = message.from_user.id if message.from_user else 0
-    try:
-        sent_text = await bot.send_message(REPORT_GROUP_ID, report_text)
-        report_message_to_user[(REPORT_GROUP_ID, sent_text.message_id)] = submitter_user_id
-        logging.info(f"Сохранена заявка: chat_id={REPORT_GROUP_ID}, msg_id={sent_text.message_id}, user_id={submitter_user_id}")
-        if len(photos) == 1:
-            sent_photo = await bot.send_photo(REPORT_GROUP_ID, photos[0])
-            report_message_to_user[(REPORT_GROUP_ID, sent_photo.message_id)] = submitter_user_id
-            logging.info(f"Сохранено фото заявки: msg_id={sent_photo.message_id}, user_id={submitter_user_id}")
-        elif len(photos) > 1:
-            media = [InputMediaPhoto(media=fid) for fid in photos]
-            sent_media = await bot.send_media_group(REPORT_GROUP_ID, media)
-            for m in sent_media:
-                report_message_to_user[(REPORT_GROUP_ID, m.message_id)] = submitter_user_id
-            logging.info(f"Сохранено {len(sent_media)} фото заявки, user_id={submitter_user_id}")
-    except TelegramBadRequest as e:
-        logging.exception("Ошибка при отправке заявки")
-        err = str(e).lower()
-        if "chat not found" in err or "chat_not_found" in err:
-            await message.answer(
-                "Не удалось отправить заявку "
-                "Обратитесь к системотехнику."
-            )
-        else:
-            await message.answer("Не удалось отправить заявку. Попробуйте позже.")
-        return
-    except Exception as e:
-        logging.exception("Ошибка при отправке заявки")
-        await message.answer("Не удалось отправить заявку. Попробуйте позже.")
+    ok, err_msg = await _send_to_report_group(report_text, photos, submitter_user_id, log_label="заявка о технике")
+    if not ok:
+        await message.answer(err_msg or "Не удалось отправить заявку. Попробуйте позже.")
         return
 
-    # Возвращаем к списку активов (ФИО не запрашиваем)
-    fio = data.get("fio", "—")
-    assets = data.get("assets") or {}
-    await state.clear()
-    await state.set_state(InvStates.waiting_fio)
-    await state.update_data(fio=fio, assets=assets)
-    if submitter_user_id in user_to_group_thread:
-        del user_to_group_thread[submitter_user_id]
-    await message.answer(
+    await _return_user_to_asset_list_after_report(
+        state,
+        submitter_user_id,
+        message.answer,
         "Заявка отправлена. Спасибо!\n\n"
         "Ожидайте ответа из группы. Пока ждёте — не нажимайте «Завершить», иначе ответы не будут приходить сюда.",
-        reply_markup=ReplyKeyboardRemove(),
+        remove_reply_keyboard=True,
     )
-    if assets:
-        assets_list = list(assets.values())
-        text_lines, kb = build_assets_list_message(assets_list, include_start_inventory=False)
-        await message.answer("\n".join(text_lines), reply_markup=kb.as_markup())
-    else:
-        await message.answer("Начать заново:", reply_markup=inline_kb_start_over())
 
 
 @dp.message(F.text == "Отправить заявку", StateFilter(InvStates.reporting_equipment))
@@ -1042,9 +1086,9 @@ def kb_discrepancy_extra():
 async def btn_cancel_discrepancy(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
         await _return_to_asset_list(
-            state, callback.message.answer, "Сообщение о несоответствии отменено."
+            state, callback.message.answer, "Сообщение о несоответствии отменено.",
+            message_to_delete=callback.message,
         )
 
 
@@ -1150,6 +1194,7 @@ async def discrepancy_reason_other_text(message: Message, state: FSMContext):
 async def btn_submit_discrepancy(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     if callback.message:
+        await _safe_delete_message(callback.message)
         await _send_discrepancy_to_group(
             state, callback.from_user, callback.message.answer
         )
@@ -1159,9 +1204,9 @@ async def btn_submit_discrepancy(callback: CallbackQuery, state: FSMContext):
 async def btn_cancel_discrepancy_extra(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     if callback.message:
-        await callback.message.edit_reply_markup(reply_markup=None)
         await _return_to_asset_list(
-            state, callback.message.answer, "Сообщение о несоответствии отменено."
+            state, callback.message.answer, "Сообщение о несоответствии отменено.",
+            message_to_delete=callback.message,
         )
 
 
@@ -1201,8 +1246,7 @@ async def _send_discrepancy_to_group(
     comment = (data.get("discrepancy_comment") or "").strip() or "—"
     photos: List[str] = data.get("discrepancy_photos") or []
     fio = data.get("fio", "—")
-    username = from_user.username if from_user else None
-    username_str = f"@{username}" if username else (str(from_user.id) if from_user else "—")
+    username_str = _format_username(from_user)
     date_str = datetime.now().strftime("%d.%m.%Y %H:%M")
 
     report_text = (
@@ -1217,45 +1261,15 @@ async def _send_discrepancy_to_group(
     )
 
     submitter_user_id = from_user.id if from_user else 0
-    try:
-        sent_text = await bot.send_message(REPORT_GROUP_ID, report_text)
-        report_message_to_user[(REPORT_GROUP_ID, sent_text.message_id)] = submitter_user_id
-        logging.info(
-            f"Сохранено несоответствие: chat_id={REPORT_GROUP_ID}, msg_id={sent_text.message_id}, user_id={submitter_user_id}"
-        )
-        if len(photos) == 1:
-            sent_photo = await bot.send_photo(REPORT_GROUP_ID, photos[0])
-            report_message_to_user[(REPORT_GROUP_ID, sent_photo.message_id)] = submitter_user_id
-        elif len(photos) > 1:
-            media = [InputMediaPhoto(media=fid) for fid in photos]
-            sent_media = await bot.send_media_group(REPORT_GROUP_ID, media)
-            for m in sent_media:
-                report_message_to_user[(REPORT_GROUP_ID, m.message_id)] = submitter_user_id
-    except TelegramBadRequest as e:
-        logging.exception("Ошибка при отправке несоответствия")
-        err = str(e).lower()
-        if "chat not found" in err or "chat_not_found" in err:
-            await answer_fn("Не удалось отправить: группа не найдена. Обратитесь к системотехнику.)
-        else:
-            await answer_fn("Не удалось отправить сообщение. Попробуйте позже или обратитесь к системотехнику.")
-        return
-    except Exception as e:
-        logging.exception("Ошибка при отправке несоответствия")
-        await answer_fn("Не удалось отправить сообщение. Попробуйте позже или обратитесь к системотехнику.")
+    ok, err_msg = await _send_to_report_group(report_text, photos, submitter_user_id, log_label="несоответствие")
+    if not ok:
+        await answer_fn(err_msg or "Не удалось отправить сообщение. Попробуйте позже или обратитесь к системотехнику.")
         return
 
-    # Возвращаем к списку активов, сессию не завершаем — пользователь сам нажмёт «Завершить»
-    fio = data.get("fio", "—")
-    assets = data.get("assets") or {}
-    await state.clear()
-    await state.set_state(InvStates.waiting_fio)
-    await state.update_data(fio=fio, assets=assets)
-    if submitter_user_id in user_to_group_thread:
-        del user_to_group_thread[submitter_user_id]
-    await answer_fn("Сообщение о несоответствии отправлено. Спасибо за информацию!")
-    assets_list = list(assets.values())
-    text_lines, kb = build_assets_list_message(assets_list, include_start_inventory=False)
-    await answer_fn("\n".join(text_lines), reply_markup=kb.as_markup())
+    await _return_user_to_asset_list_after_report(
+        state, submitter_user_id, answer_fn,
+        "Сообщение о несоответствии отправлено. Спасибо за информацию!",
+    )
 
 
 @dp.message(F.reply_to_message)
@@ -1318,7 +1332,7 @@ async def handle_group_reply_to_report(message: Message):
         err = str(e).lower()
         if "blocked" in err or "user is deactivated" in err or "chat not found" in err:
             hint = (
-                "Не удалось доставить ответ заявителю (возможно, он нажал «Начать заново» или заблокировал бота). "
+                "Не удалось доставить ответ заявителю (возможно, он завершил сессию или заблокировал бота). "
                 "Свяжитесь с ним напрямую — username и ФИО указаны в заявке выше."
             )
         else:
@@ -1330,12 +1344,22 @@ async def handle_group_reply_to_report(message: Message):
 
 
 async def finish_inventory(message: Message, state: FSMContext) -> None:
-    await state.clear()
+    """«Завершить инвентаризацию» — возврат на главный экран (список активов)."""
+    await state.set_state(InvStates.waiting_fio)
     await message.answer(
         "Инвентаризация завершена. Спасибо за работу!",
         reply_markup=ReplyKeyboardRemove(),
     )
-    await message.answer("Начать заново:", reply_markup=inline_kb_start_over())
+    data = await state.get_data()
+    assets = data.get("assets") or {}
+    if assets:
+        assets_list = list(assets.values())
+        text_lines, kb = build_assets_list_message(assets_list, include_start_inventory=False)
+        await message.answer("\n".join(text_lines), reply_markup=kb.as_markup())
+    else:
+        await state.set_state(InvStates.waiting_identifier)
+        user_id = message.from_user.id if message.from_user else None
+        await message.answer(_identifier_prompt(user_id))
 
 
 @dp.message(F.text == "/done", StateFilter(InvStates.inventory))
@@ -1384,6 +1408,35 @@ def decode_qr_from_bytes(image_bytes: bytes) -> Optional[str]:
         if data and data.strip():
             return data.strip()
     return None
+
+
+async def _load_photo_and_decode_qr(message: Message) -> Optional[Tuple[bytes, Optional[str], str]]:
+    """
+    Скачивает фото из сообщения, распознаёт QR.
+    Возвращает (image_bytes, original_filename, qr_text) или None (при ошибке уже отправлено сообщение пользователю).
+    """
+    original_filename: Optional[str] = None
+    try:
+        photo = message.photo[-1]
+        file = await bot.get_file(photo.file_id)
+        if file.file_path:
+            original_filename = Path(file.file_path).name
+        file_obj = await bot.download_file(file.file_path)
+        if isinstance(file_obj, BytesIO):
+            image_bytes = file_obj.getvalue()
+        else:
+            image_bytes = file_obj.read()
+    except Exception:
+        logging.exception("Ошибка при загрузке фото")
+        await message.answer("Не удалось загрузить фото. Попробуйте отправить другое изображение.")
+        return None
+
+    qr_text = decode_qr_from_bytes(image_bytes)
+    if not qr_text:
+        await message.answer("На изображении не найден QR-код. Убедитесь, что QR-код чётко виден.")
+        return None
+
+    return (image_bytes, original_filename, qr_text)
 
 
 async def process_inventory_qr(
@@ -1485,31 +1538,12 @@ async def process_inventory_qr(
 
 @dp.message(F.photo, StateFilter(InvStates.waiting_fio))
 async def handle_qr_photo_in_waiting(message: Message, state: FSMContext):
-    original_filename: Optional[str] = None
-    try:
-        photo = message.photo[-1]  # самое большое по размеру
-        file = await bot.get_file(photo.file_id)
-        if file.file_path:
-            original_filename = Path(file.file_path).name
-        file_obj = await bot.download_file(file.file_path)
-        if isinstance(file_obj, BytesIO):
-            image_bytes = file_obj.getvalue()
-        else:
-            image_bytes = file_obj.read()
-    except Exception as e:
-        logging.exception("Ошибка при загрузке фото")
-        await message.answer("Не удалось загрузить фото. Попробуйте отправить другое изображение.")
+    result = await _load_photo_and_decode_qr(message)
+    if result is None:
         return
-
-    qr_text = decode_qr_from_bytes(image_bytes)
-    if not qr_text:
-        await message.answer("На изображении не найден QR-код. Убедитесь, что QR-код чётко виден.")
-        return
-
+    image_bytes, original_filename, qr_text = result
     await process_inventory_qr(
-        message,
-        state,
-        qr_text,
+        message, state, qr_text,
         image_bytes=image_bytes,
         original_filename=original_filename,
     )
@@ -1523,31 +1557,12 @@ async def handle_qr_text(message: Message, state: FSMContext):
 
 @dp.message(F.photo, StateFilter(InvStates.inventory))
 async def handle_qr_photo(message: Message, state: FSMContext):
-    original_filename: Optional[str] = None
-    try:
-        photo = message.photo[-1]  # самое большое по размеру
-        file = await bot.get_file(photo.file_id)
-        if file.file_path:
-            original_filename = Path(file.file_path).name
-        file_obj = await bot.download_file(file.file_path)
-        if isinstance(file_obj, BytesIO):
-            image_bytes = file_obj.getvalue()
-        else:
-            image_bytes = file_obj.read()
-    except Exception as e:
-        logging.exception("Ошибка при загрузке фото")
-        await message.answer("Не удалось загрузить фото. Попробуйте отправить другое изображение.")
+    result = await _load_photo_and_decode_qr(message)
+    if result is None:
         return
-
-    qr_text = decode_qr_from_bytes(image_bytes)
-    if not qr_text:
-        await message.answer("На изображении не найден QR-код. Убедитесь, что QR-код чётко виден.")
-        return
-
+    image_bytes, original_filename, qr_text = result
     await process_inventory_qr(
-        message,
-        state,
-        qr_text,
+        message, state, qr_text,
         image_bytes=image_bytes,
         original_filename=original_filename,
     )
