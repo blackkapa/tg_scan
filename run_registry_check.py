@@ -1,17 +1,3 @@
-#!/usr/bin/env python3
-"""
-Проверка реестра увольнений/перемещений: читает Excel, по каждому сотруднику
-проверяет в A-Tracker наличие техники; при наличии — шлёт оповещение в группу.
-
-Обработанные файлы записываются в state-файл (путь + mtime), чтобы не обрабатывать
-один и тот же файл дважды. После обработки файл можно перемещать в data/processed/.
-
-Запуск: python run_registry_check.py [путь_к_файлу_или_папке]
-Путь по умолчанию — config.REGISTRY_FILE_PATH (файл или папка с .xls/.xlsx).
-
-Сборка в exe (PyInstaller): см. BUILD_EXE.md
-"""
-
 import asyncio
 import json
 import logging
@@ -61,7 +47,6 @@ REGISTRY_DOC_TYPES = ("Увольнение", "Перевод")
 
 
 def _load_state() -> dict:
-    """Загрузить состояние обработанных файлов из JSON."""
     path = os.path.abspath(REGISTRY_STATE_FILE)
     if not os.path.isfile(path):
         return {"processed": {}}
@@ -74,7 +59,6 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict) -> None:
-    """Сохранить состояние в JSON."""
     path = os.path.abspath(REGISTRY_STATE_FILE)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -82,7 +66,6 @@ def _save_state(state: dict) -> None:
 
 
 def _already_processed(state: dict, file_path: str) -> bool:
-    """Файл уже обработан (тот же путь и та же mtime)?"""
     path = os.path.abspath(file_path)
     if path not in state.get("processed", {}):
         return False
@@ -93,7 +76,6 @@ def _already_processed(state: dict, file_path: str) -> bool:
 
 
 def _mark_processed(state: dict, file_path: str) -> None:
-    """Пометить файл как обработанный."""
     path = os.path.abspath(file_path)
     try:
         mtime = os.path.getmtime(path)
@@ -106,7 +88,6 @@ def _mark_processed(state: dict, file_path: str) -> None:
 
 
 def _collect_files(path_arg: str) -> list:
-    """Собрать список .xls/.xlsx для обработки: один файл или все в папке."""
     path = os.path.abspath(path_arg)
     if os.path.isfile(path):
         ext = os.path.splitext(path)[1].lower()
@@ -126,7 +107,6 @@ def _collect_files(path_arg: str) -> list:
 
 
 def _move_to_processed(file_path: str) -> bool:
-    """Переместить файл в REGISTRY_PROCESSED_DIR с датой в имени. Возвращает True при успехе."""
     if not REGISTRY_PROCESSED_DIR:
         return False
     dest_dir = os.path.abspath(REGISTRY_PROCESSED_DIR)
@@ -157,7 +137,6 @@ def _format_asset_list(assets: list) -> str:
 
 
 async def _process_rows(rows: list, atracker: ATrackerClient, bot: Bot) -> tuple:
-    """Обработать строки реестра, отправить оповещения. Возвращает (sent, errors)."""
     today = date.today()
     sent = 0
     errors = 0

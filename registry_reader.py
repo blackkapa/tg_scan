@@ -1,9 +1,3 @@
-"""
-Чтение реестра увольнений/перемещений из Excel (.xls / .xlsx).
-Нужны колонки: Дата приказа, Сотрудник, Документ, Должность, Примечание.
-Заголовок ищется по первому вхождению этих названий в первых 10 строках.
-"""
-
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple

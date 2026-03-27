@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Авторизация по коду на почту.
-Поиск сотрудника в A-Tracker по ФИО / логину / почте; проверка домена @asg.ru; отправка кода на почту.
-"""
-
 import logging
 import random
 import smtplib
@@ -14,9 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Коды: code -> (fio, email, expires_at timestamp)
 _codes: Dict[str, Tuple[str, str, float]] = {}
-CODE_TTL_SEC = 600  # 10 минут
+CODE_TTL_SEC = 600
 CODE_LEN = 6
 
 
@@ -36,11 +29,6 @@ def find_employee_by_input(
     user_input: str,
     allowed_domain: str,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """
-    Найти сотрудника по введённому ФИО, логину или почте.
-    Возвращает (fio, email, error_message).
-    Если найден и почта допустима — error_message None. Иначе — текст ошибки.
-    """
     if not user_input or not user_input.strip():
         return (None, None, "Введите ФИО, логин или почту.")
 
@@ -64,7 +52,6 @@ def find_employee_by_input(
                 return (fio or "—", email, None)
         return (None, None, "Сотрудник с такой почтой не найден в системе учёта.")
 
-    # ФИО или логин
     norm_fio = _norm(raw)
     norm_login_input = _norm_login(raw)
     for emp in employees:
@@ -75,22 +62,20 @@ def find_employee_by_input(
         email = (emp.get("sEmail") or emp.get("semail") or "").strip()
         if _norm(fio) == norm_fio or _norm_login(login) == norm_login_input:
             if not email:
-                return (None, None, "У сотрудника не указана почта в системе. Обратитесь к администратору.")
+                return (None, None, "У сотрудника не указана почта в системе. Обратитесь к системотехнику.")
             if not email.lower().endswith(allowed):
-                return (None, None, f"У сотрудника указана почта не с доменом {allowed}. Обратитесь к администратору.")
+                return (None, None, f"У сотрудника указана почта не с доменом {allowed}. Вход только через asg.")
             return (fio or "—", email, None)
     return (None, None, "Сотрудник не найден. Проверьте ФИО или логин и попробуйте снова.")
 
 
 def create_code(fio: str, email: str) -> str:
-    """Сгенерировать код, сохранить связку code -> (fio, email, expires_at)."""
     code = "".join(random.choices(string.digits, k=CODE_LEN))
     _codes[code] = (fio, email, time.time() + CODE_TTL_SEC)
     return code
 
 
 def check_code(code: str) -> Optional[Tuple[str, str]]:
-    """Проверить код. Возвращает (fio, email) или None."""
     code = (code or "").strip()
     if not code or code not in _codes:
         return None
@@ -103,14 +88,13 @@ def check_code(code: str) -> Optional[Tuple[str, str]]:
 
 
 def send_code_email(to_email: str, code: str) -> Tuple[bool, str]:
-    """Отправить письмо с кодом. Возвращает (успех, сообщение об ошибке)."""
     import config
     host = getattr(config, "SMTP_HOST", "") or ""
     port = int(getattr(config, "SMTP_PORT", 0) or 465)
     use_ssl = getattr(config, "SMTP_USE_SSL", True)
     user = getattr(config, "SMTP_USER", "") or ""
     password = getattr(config, "SMTP_PASSWORD", "") or ""
-    from_addr = getattr(config, "SMTP_FROM", "") or user or "noreply@asg.ru"
+    from_addr = getattr(config, "SMTP_FROM", "")
     if not host:
         return (False, "Не настроена отправка почты (SMTP_HOST).")
     try:
@@ -119,13 +103,11 @@ def send_code_email(to_email: str, code: str) -> Tuple[bool, str]:
         msg["From"] = from_addr
         msg["To"] = to_email
         if use_ssl or port == 465:
-            # Порт 465 — SSL (Yandex рекомендует)
             with smtplib.SMTP_SSL(host, port, timeout=20) as s:
                 if user and password:
                     s.login(user, password)
                 s.sendmail(from_addr, [to_email], msg.as_string())
         else:
-            # Порт 587 — TLS (starttls)
             with smtplib.SMTP(host, port, timeout=20) as s:
                 s.starttls()
                 if user and password:
@@ -134,7 +116,7 @@ def send_code_email(to_email: str, code: str) -> Tuple[bool, str]:
         return (True, "")
     except smtplib.SMTPAuthenticationError as e:
         logger.exception("Ошибка аутентификации SMTP при отправке на %s: %s", to_email, e)
-        return (False, "Ошибка входа на почтовый сервер. Проверьте логин/пароль. Для Yandex используйте пароль приложения.")
+        return (False, "Ошибка входа на почтовый сервер. Проверьте логин/пароль.")
     except Exception as e:
         logger.exception("Ошибка отправки письма на %s: %s", to_email, e)
-        return (False, "Не удалось отправить письмо. Попробуйте позже или обратитесь к администратору.")
+        return (False, "Не удалось отправить письмо. Попробуйте позже.")
