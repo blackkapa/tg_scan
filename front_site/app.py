@@ -52,7 +52,8 @@ jinja_env = Environment(
     autoescape=select_autoescape(["html", "xml"]),
     cache_size=0,
 )
-templates = Jinja2Templates(directory=str(templates_dir), env=jinja_env)
+# Starlette/Jinja2 либо directory, либо env — передаём только env.
+templates = Jinja2Templates(env=jinja_env)
 
 
 def _write_audit(request: Request, action: str, details: str = "") -> None:
