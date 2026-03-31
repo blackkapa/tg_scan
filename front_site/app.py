@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 # Берём настройки и клиент A-Tracker из существующего кода, но здесь пока только инициализируем.
 from config import (
@@ -42,7 +43,16 @@ static_dir = BASE_DIR / "static"
 templates_dir = BASE_DIR / "templates"
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
-templates = Jinja2Templates(directory=str(templates_dir))
+
+# На Debian с Python 3.11/стеком FastAPI попадаем на баг Jinja2 LRUCache
+# ("unhashable type: 'dict'" при работе с cache_key). Выключаем кэш шаблонов,
+# чтобы обойти эту проблему — для нашего объёма шаблонов это некритично.
+jinja_env = Environment(
+    loader=FileSystemLoader(str(templates_dir)),
+    autoescape=select_autoescape(["html", "xml"]),
+    cache_size=0,
+)
+templates = Jinja2Templates(directory=str(templates_dir), env=jinja_env)
 
 
 def _write_audit(request: Request, action: str, details: str = "") -> None:
