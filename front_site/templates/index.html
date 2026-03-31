@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Инвентаризация техники{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card">
+        <h1 class="hero__title">Инвентаризация техники</h1>
+        <p class="hero__text">
+            Введите своё ФИО, логин или корпоративную почту @asg.ru. На почту придёт код для входа.
+        </p>
+        <form method="post" action="/start-auth" class="auth-form">
+            <label class="auth-form__label">
+                <span>ФИО, логин или почта</span>
+                <input
+                    class="auth-form__input"
+                    type="text"
+                    name="identifier"
+                    placeholder="Иванов Иван Иванович / ivanov / ivanov@asg.ru"
+                    required
+                >
+            </label>
+            {% if message %}
+                <p class="auth-form__message">{{ message }}</p>
+            {% endif %}
+            <button type="submit" class="auth-form__button">Получить код</button>
+        </form>
+    </div>
+</section>
+{% endblock %}
+

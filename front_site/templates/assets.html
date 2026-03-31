@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Мои активы{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card">
+        <h1 class="hero__title hero__title--center">Мои активы</h1>
+        <p class="hero__text">
+            {{ fio }}. Ниже список техники, которая сейчас закреплена за вами.
+        </p>
+        {% if is_admin %}
+            <p class="hero__text" style="margin-top: 0.25rem; font-size: 0.85rem; color: #166534;">
+                Вы вошли как администратор. <a href="/admin" class="assets-list__link">Перейти в режим админа</a>
+            </p>
+        {% endif %}
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.5rem;">{{ message }}</p>
+        {% endif %}
+        <div class="assets-list">
+            {% for a in assets %}
+                <div class="assets-list__item {% if a.inventoried %}assets-list__item--done{% else %}assets-list__item--pending{% endif %}">
+                    <div class="assets-list__main">
+                        <div class="assets-list__name">
+                            {% if a.inventoried %}
+                                ✅
+                            {% else %}
+                                ❌
+                            {% endif %}
+                            {{ a.name }}
+                        </div>
+                        <div class="assets-list__meta">
+                            <span>Инвентарный номер: {{ a.invent }}</span><br>
+                            <span>Серийный номер: {{ a.serial }}</span>
+                        </div>
+                    </div>
+                    <div class="assets-list__actions">
+                        <div class="assets-list__primary-actions">
+                            {% if not a.inventoried %}
+                                <!-- Инвентаризация по фото: основное действие -->
+                                <form method="post"
+                                      action="/assets/{{ a.id }}/inventory"
+                                      enctype="multipart/form-data"
+                                      id="inv-photo-form-{{ a.id }}">
+                                    <input type="file"
+                                           name="file"
+                                           accept="image/*"
+                                           style="display:none;"
+                                           id="inv-photo-input-{{ a.id }}"
+                                           onchange="
+                                               if (this.files.length) {
+                                                   const btn = document.getElementById('inv-btn-{{ a.id }}');
+                                                   if (btn) {
+                                                       btn.disabled = true;
+                                                       btn.dataset.originalText = btn.textContent;
+                                                       btn.textContent = 'Отправляем...';
+                                                   }
+                                                   document.getElementById('inv-photo-form-{{ a.id }}').submit();
+                                               }
+                                           ">
+                                    <button type="button"
+                                            id="inv-btn-{{ a.id }}"
+                                            class="assets-list__button assets-list__button--primary"
+                                            title="Отправить фото с QR-кодом этой техники и отметить инвентаризацию"
+                                            onclick="document.getElementById('inv-photo-input-{{ a.id }}').click();">
+                                        Инвентаризировать по фото
+                                    </button>
+                                </form>
+                            {% else %}
+                                <form>
+                                    <button type="button"
+                                            class="assets-list__button assets-list__button--done"
+                                            disabled
+                                            title="Инвентаризация по этому активу уже проведена">
+                                        Инвентаризация ✅
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </div>
+                        <div class="assets-list__secondary-actions">
+                            <!-- Дополнительные фото: вторичное действие -->
+                            <form method="post"
+                                  action="/assets/{{ a.id }}/photo"
+                                  enctype="multipart/form-data"
+                                  id="extra-photo-form-{{ a.id }}">
+                                <input type="file"
+                                       name="file"
+                                       accept="image/*"
+                                       style="display:none;"
+                                       id="extra-photo-input-{{ a.id }}"
+                                       onchange="
+                                           if (this.files.length) {
+                                               const btn = document.getElementById('extra-btn-{{ a.id }}');
+                                               if (btn) {
+                                                   btn.disabled = true;
+                                                   btn.dataset.originalText = btn.textContent;
+                                                   btn.textContent = 'Отправляем...';
+                                               }
+                                               document.getElementById('extra-photo-form-{{ a.id }}').submit();
+                                           }
+                                       ">
+                                <button type="button"
+                                        id="extra-btn-{{ a.id }}"
+                                        class="assets-list__link-button"
+                                        title="Прикрепить дополнительные фото к этому активу"
+                                        onclick="document.getElementById('extra-photo-input-{{ a.id }}').click();">
+                                    Загрузить доп. фото
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        <div class="assets-qr-block">
+            <!-- Узнать, чья техника по QR: сразу открываем выбор фото и отправляем на /scan-qr -->
+            <form method="post"
+                  action="/scan-qr"
+                  enctype="multipart/form-data"
+                  id="scan-qr-form">
+                <input type="file"
+                       name="file"
+                       accept="image/*"
+                       style="display:none;"
+                       id="scan-qr-input"
+                       onchange="
+                           if (this.files.length) {
+                               const btn = document.getElementById('scan-qr-btn');
+                               if (btn) {
+                                   btn.disabled = true;
+                                   btn.dataset.originalText = btn.textContent;
+                                   btn.textContent = 'Сканируем...';
+                               }
+                               document.getElementById('scan-qr-form').submit();
+                           }
+                       ">
+                <button type="button"
+                        id="scan-qr-btn"
+                        class="assets-list__link-button assets-list__link-button--full"
+                        title="Определить по QR-коду, за кем закреплена техника"
+                        onclick="document.getElementById('scan-qr-input').click();">
+                    Узнать чья техника по QR
+                </button>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

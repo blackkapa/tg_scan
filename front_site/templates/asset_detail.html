@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Информация об активе{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card">
+        <h1 class="hero__title">Информация об активе</h1>
+
+        {% if error %}
+            <p class="auth-form__message" style="margin-top: 0.5rem;">{{ error }}</p>
+        {% else %}
+            <p class="hero__text">
+                <strong>{{ asset.sFullName }}</strong>
+            </p>
+            <p class="hero__text" style="margin-top: 0.5rem;">
+                Владелец: <strong>{{ asset.OwnerFio }}</strong>
+            </p>
+            <p class="hero__text" style="margin-top: 0.5rem;">
+                Инвентарный номер: {{ asset.sInventoryNo or "-" }}<br>
+                Серийный номер: {{ asset.sSerialNo or "-" }}
+            </p>
+
+            {% if message %}
+                <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+            {% endif %}
+
+            <form method="post"
+                  action="/assets/{{ asset.ID }}/photo"
+                  enctype="multipart/form-data"
+                  class="auth-form"
+                  style="margin-top: 1rem;">
+                <label class="auth-form__label">
+                    <span>Добавить фото</span>
+                    <input
+                        class="auth-form__input"
+                        type="file"
+                        name="file"
+                        accept="image/*"
+                        required
+                    >
+                </label>
+                <button type="submit" class="auth-form__button">Загрузить фото</button>
+            </form>
+            <p class="hero__text" style="margin-top: 1rem; font-size: 0.9rem;">
+                <a href="/assets" class="assets-list__link">← Назад к списку активов</a>
+            </p>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+

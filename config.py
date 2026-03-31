@@ -71,6 +71,22 @@ SMTP_USER = _get("smtp", "user", "")
 SMTP_PASSWORD = _get("smtp", "password", "")
 SMTP_FROM = _get("smtp", "from", "") or SMTP_USER or "noreply@asg.ru"
 
+
+def _parse_admin_emails() -> frozenset[str]:
+    """Список почт, которым разрешён админский режим в веб-интерфейсе."""
+    raw = _get("email", "admin_emails", "")
+    if not raw:
+        return frozenset()
+    items: list[str] = []
+    for part in raw.replace(",", " ").split():
+        part = part.strip().lower()
+        if part:
+            items.append(part)
+    return frozenset(items)
+
+
+ADMIN_EMAILS = _parse_admin_emails()
+
 # --- Telegram ---
 TELEGRAM_BOT_TOKEN = _get("telegram", "bot_token", "")
 

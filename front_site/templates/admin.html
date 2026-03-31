@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}Режим администратора{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card">
+        <h1 class="hero__title hero__title--center">Режим администратора</h1>
+        <p class="hero__text">
+            {{ fio }}. Здесь вы можете работать с техникой любых сотрудников.
+        </p>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+
+        <form method="post" action="/admin" class="auth-form" style="margin-top: 1rem;">
+            <label class="auth-form__label">
+                <span>Найти сотрудника по ФИО, логину или почте</span>
+                <input
+                    class="auth-form__input"
+                    type="text"
+                    name="identifier"
+                    placeholder="Иванов Иван Иванович / ivanov / ivanov@asg.ru"
+                    required
+                >
+            </label>
+            <button type="submit" class="auth-form__button">Показать технику</button>
+        </form>
+
+        {% if target_fio %}
+            <p class="hero__text" style="margin-top: 1rem;">
+                Текущий сотрудник: <strong>{{ target_fio }}</strong>.
+            </p>
+        {% endif %}
+
+        {% if assets %}
+            <div class="assets-list" style="margin-top: 1rem;">
+                {% for a in assets %}
+                    <div class="assets-list__item {% if a.inventoried %}assets-list__item--done{% else %}assets-list__item--pending{% endif %}">
+                        <div class="assets-list__main">
+                            <div class="assets-list__name">
+                                {% if a.inventoried %}✅{% else %}❌{% endif %}
+                                {{ a.name }}
+                            </div>
+                            <div class="assets-list__meta">
+                                <span>Инвентарный номер: {{ a.invent }}</span><br>
+                                <span>Серийный номер: {{ a.serial }}</span>
+                            </div>
+                        </div>
+                        {% if not a.inventoried %}
+                            <div class="assets-list__actions">
+                                <div class="assets-list__primary-actions">
+                                    <!-- Инвент через QR для конкретного актива -->
+                                    <form method="post"
+                                          action="/admin/assets/{{ a.id }}/inventory-qr"
+                                          enctype="multipart/form-data"
+                                          id="admin-asset-qr-form-{{ a.id }}">
+                                        <input type="file"
+                                               name="file"
+                                               accept="image/*"
+                                               style="display:none;"
+                                               id="admin-asset-qr-input-{{ a.id }}"
+                                               onchange="
+                                                   if (this.files.length) {
+                                                       const btn = document.getElementById('admin-asset-qr-btn-{{ a.id }}');
+                                                       if (btn) {
+                                                           btn.disabled = true;
+                                                           btn.dataset.originalText = btn.textContent;
+                                                           btn.textContent = 'Отправляем...';
+                                                       }
+                                                       document.getElementById('admin-asset-qr-form-{{ a.id }}').submit();
+                                                   }
+                                               ">
+                                        <button type="button"
+                                                id="admin-asset-qr-btn-{{ a.id }}"
+                                                class="assets-list__button assets-list__button--primary"
+                                                title="Проверить QR для этого актива и провести инвентаризацию"
+                                                onclick="document.getElementById('admin-asset-qr-input-{{ a.id }}').click();">
+                                            Инвент через QR
+                                        </button>
+                                    </form>
+                                </div>
+                                <div class="assets-list__secondary-actions">
+                                    <!-- Инвент без QR руками -->
+                                    <form method="post"
+                                          action="/admin/assets/{{ a.id }}/inventory-manual">
+                                        <button type="submit"
+                                                class="assets-list__link-button"
+                                                title="Отметить инвентаризацию без QR-кода, с комментарием о ручном проведении">
+                                            Инвент без QR руками
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="assets-qr-block" style="margin-top: 1.5rem;">
+            <form method="post"
+                  action="/admin/scan-qr"
+                  enctype="multipart/form-data"
+                  id="admin-scan-qr-form">
+                <input type="file"
+                       name="file"
+                       accept="image/*"
+                       style="display:none;"
+                       id="admin-scan-qr-input"
+                       onchange="
+                           if (this.files.length) {
+                               const btn = document.getElementById('admin-scan-qr-btn');
+                               if (btn) {
+                                   btn.disabled = true;
+                                   btn.dataset.originalText = btn.textContent;
+                                   btn.textContent = 'Сканируем...';
+                               }
+                               document.getElementById('admin-scan-qr-form').submit();
+                           }
+                       ">
+                <button type="button"
+                        id="admin-scan-qr-btn"
+                        class="assets-list__link-button assets-list__link-button--full"
+                        title="Определить по QR-коду, за кем закреплена техника"
+                        onclick="document.getElementById('admin-scan-qr-input').click();">
+                    Узнать чья техника по QR
+                </button>
+            </form>
+        </div>
+
+        <div class="assets-qr-block" style="margin-top: 0.75rem;">
+            <form method="post"
+                  action="/admin/invent"
+                  enctype="multipart/form-data"
+                  id="admin-invent-form">
+                <input type="file"
+                       name="file"
+                       accept="image/*"
+                       style="display:none;"
+                       id="admin-invent-input"
+                       onchange="
+                           if (this.files.length) {
+                               const btn = document.getElementById('admin-invent-btn');
+                               if (btn) {
+                                   btn.disabled = true;
+                                   btn.dataset.originalText = btn.textContent;
+                                   btn.textContent = 'Отправляем...';
+                               }
+                               document.getElementById('admin-invent-form').submit();
+                           }
+                       ">
+                <button type="button"
+                        id="admin-invent-btn"
+                        class="assets-list__button assets-list__button--primary"
+                        style="width: 100%;"
+                        title="Провести инвентаризацию по фото и сохранить снимок в A‑Tracker"
+                        onclick="document.getElementById('admin-invent-input').click();">
+                    Инвент
+                </button>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

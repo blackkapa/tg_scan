@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}Инвентаризация техники{% endblock %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+<body>
+    <header class="site-header">
+        <div class="site-header__inner">
+            <div class="site-header__brand">
+                <!-- Здесь потом можно подложить логотип из брендбука -->
+                <span class="site-header__logo-mark"></span>
+                <span class="site-header__title">Инвентаризация техники</span>
+            </div>
+            {% if request.session.get("user_email") %}
+                <div class="site-header__actions">
+                    <a href="/assets" class="site-header__link">Мои активы</a>
+                    <a href="/logout" class="site-header__link">Выйти</a>
+                </div>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="site-main">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <div class="site-footer__inner">
+            <span>Внутренний сервис инвентаризации</span>
+        </div>
+    </footer>
+</body>
+</html>
+

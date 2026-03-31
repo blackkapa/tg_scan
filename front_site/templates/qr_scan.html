@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}Сканирование QR{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card">
+        <h1 class="hero__title">Сканирование QR</h1>
+        <p class="hero__text">
+            Сделайте фото QR-наклейки на технике или выберите готовое изображение.
+            Мы распознаем код и откроем карточку актива.
+        </p>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        <form method="post"
+              action="/scan-qr"
+              enctype="multipart/form-data"
+              class="auth-form"
+              style="margin-top: 1rem;">
+            <label class="auth-form__label">
+                <span>Фото с QR-кодом</span>
+                <input
+                    class="auth-form__input"
+                    type="file"
+                    name="file"
+                    accept="image/*"
+                    capture="environment"
+                    required
+                >
+            </label>
+            <button type="submit" class="auth-form__button">Отправить</button>
+        </form>
+    </div>
+</section>
+{% endblock %}
+

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Ввод кода{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card">
+        <h1 class="hero__title">Проверка кода</h1>
+        <p class="hero__text">
+            Мы отправили код на почту <strong>{{ email }}</strong>. Введите его ниже.
+        </p>
+        <form method="post" action="/enter-code" class="auth-form">
+            <label class="auth-form__label">
+                <span>Код из письма</span>
+                <input
+                    class="auth-form__input"
+                    type="text"
+                    name="code"
+                    inputmode="numeric"
+                    autocomplete="one-time-code"
+                    required
+                >
+            </label>
+            {% if message %}
+                <p class="auth-form__message">{{ message }}</p>
+            {% endif %}
+            <button type="submit" class="auth-form__button">Войти</button>
+        </form>
+    </div>
+</section>
+{% endblock %}
+
