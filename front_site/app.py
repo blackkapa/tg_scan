@@ -52,8 +52,15 @@ jinja_env = Environment(
     autoescape=select_autoescape(["html", "xml"]),
     cache_size=0,
 )
-# Starlette/Jinja2 либо directory, либо env — передаём только env.
-templates = Jinja2Templates(env=jinja_env)
+
+
+def render_template(name: str, context: dict, status_code: int = 200) -> HTMLResponse:
+    template = jinja_env.get_template(name)
+    content = template.render(context)
+    return HTMLResponse(content=content, status_code=status_code)
+
+
+templates = Jinja2Templates(directory=str(templates_dir))
 
 
 def _write_audit(request: Request, action: str, details: str = "") -> None:
@@ -110,7 +117,7 @@ async def index(request: Request) -> HTMLResponse:
         "title": "Инвентаризация техники",
         "message": message,
     }
-    return templates.TemplateResponse("index.html", context)
+    return render_template("index.html", context)
 
 
 @app.post("/start-auth")
@@ -123,7 +130,7 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "title": "Инвентаризация техники",
             "message": "Введите ФИО, логин или почту.",
         }
-        return templates.TemplateResponse("index.html", context, status_code=400)
+        return render_template("index.html", context, status_code=400)
 
     try:
         client = _build_atracker_client()
@@ -134,7 +141,7 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "title": "Инвентаризация техники",
             "message": "Не удалось загрузить список сотрудников из A‑Tracker. Попробуйте позже.",
         }
-        return templates.TemplateResponse("index.html", context, status_code=502)
+        return render_template("index.html", context, status_code=502)
 
     fio, email, error = find_employee_by_input(employees, identifier, EMAIL_DOMAIN_ALLOWED)
     if error:
@@ -143,7 +150,7 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "title": "Инвентаризация техники",
             "message": error,
         }
-        return templates.TemplateResponse("index.html", context, status_code=400)
+        return render_template("index.html", context, status_code=400)
 
     code = create_code(fio or "", email or "")
     ok, send_error = send_code_email(email, code)
@@ -153,7 +160,7 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "title": "Инвентаризация техники",
             "message": send_error,
         }
-        return templates.TemplateResponse("index.html", context, status_code=502)
+        return render_template("index.html", context, status_code=502)
 
     # Запоминаем, куда отправили код, чтобы потом показать это в шаблоне.
     request.session["pending_fio"] = fio
@@ -175,7 +182,7 @@ async def enter_code_form(request: Request):
         "email": pending_email,
         "message": message,
     }
-    return templates.TemplateResponse("enter_code.html", context)
+    return render_template("enter_code.html", context)
 
 
 @app.post("/enter-code", response_class=HTMLResponse)
@@ -230,7 +237,7 @@ async def assets_page(request: Request):
             "title": "Мои активы",
             "error": "Не удалось загрузить список активов из A‑Tracker. Попробуйте позже.",
         }
-        return templates.TemplateResponse("assets.html", context, status_code=502)
+        return render_template("assets.html", context, status_code=502)
 
     if not assets:
         context = {
@@ -238,7 +245,7 @@ async def assets_page(request: Request):
             "title": "Мои активы",
             "fio": fio,
         }
-        return templates.TemplateResponse("no_assets.html", context)
+        return render_template("no_assets.html", context)
 
     items = []
     for a in assets:
@@ -270,7 +277,7 @@ async def assets_page(request: Request):
         "is_admin": bool(request.session.get("is_admin")),
         "message": request.session.pop("flash_message", None),
     }
-    return templates.TemplateResponse("assets.html", context)
+    return render_template("assets.html", context)
 
 
 @app.get("/logout")
@@ -336,7 +343,7 @@ async def admin_page(request: Request):
         "assets": assets,
         "message": request.session.pop("flash_message", None),
     }
-    return templates.TemplateResponse("admin.html", context)
+    return render_template("admin.html", context)
 
 
 @app.post("/admin", response_class=HTMLResponse)
@@ -494,14 +501,14 @@ async def asset_detail(request: Request, asset_id: int):
             "title": "Информация об активе",
             "error": "Актив не найден в A‑Tracker.",
         }
-        return templates.TemplateResponse("asset_detail.html", context, status_code=404)
+        return render_template("asset_detail.html", context, status_code=404)
     if err == "service_error" or not info:
         context = {
             "request": request,
             "title": "Информация об активе",
             "error": "Не удалось загрузить информацию об активе. Попробуйте позже.",
         }
-        return templates.TemplateResponse("asset_detail.html", context, status_code=502)
+        return render_template("asset_detail.html", context, status_code=502)
 
     owner_fio = info.get("OwnerFio") or "—"
     is_admin = bool(request.session.get("is_admin"))
@@ -515,7 +522,7 @@ async def asset_detail(request: Request, asset_id: int):
                 "Просмотр доступен только владельцу или администратору."
             ),
         }
-        return templates.TemplateResponse("asset_detail.html", context, status_code=403)
+        return render_template("asset_detail.html", context, status_code=403)
 
     context = {
         "request": request,
@@ -523,7 +530,7 @@ async def asset_detail(request: Request, asset_id: int):
         "asset": info,
         "message": request.session.pop("flash_message", None),
     }
-    return templates.TemplateResponse("asset_detail.html", context)
+    return render_template("asset_detail.html", context)
 
 
 @app.get("/scan-qr", response_class=HTMLResponse)
