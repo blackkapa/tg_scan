@@ -56,7 +56,12 @@ jinja_env = Environment(
 
 def render_template(name: str, context: dict, status_code: int = 200) -> HTMLResponse:
     template = jinja_env.get_template(name)
-    content = template.render(context)
+    ctx = dict(context or {})
+    request = ctx.get("request")
+    if request is not None:
+        # Даём шаблонам привычную функцию url_for, как у StarletteTemplates.
+        ctx["url_for"] = request.url_for
+    content = template.render(ctx)
     return HTMLResponse(content=content, status_code=status_code)
 
 
