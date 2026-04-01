@@ -150,18 +150,19 @@ def _build_qr_label_png(asset_name: str, serial: str, invent: str, asset_id: int
     qr_x, qr_y = 6, 35
     img.paste(qr_img, (qr_x, qr_y))
 
-    # Шрифты (берём системный, если специальных нет)
+    # Шрифты с поддержкой кириллицы (DejaVuSans есть почти на всех Debian)
     try:
-        title_font = ImageFont.truetype("Times New Roman.ttf", 15)
+        title_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 15)
     except Exception:
         title_font = ImageFont.load_default()
     try:
-        desc_font = ImageFont.truetype("Calibri.ttf", 18)
+        desc_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18)
     except Exception:
         desc_font = ImageFont.load_default()
 
     # Текст справа
-    start_x = 224
+    # Отступ от QR-кода чуть больше, чем впритык, чтобы текст не прилипал.
+    start_x = qr_x + qr_target_w + 24
     start_y = 55
     line_height = 27
 
