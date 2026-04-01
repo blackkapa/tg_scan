@@ -263,6 +263,10 @@ html, body {
     gap: 0.3rem;
 }
 
+.assets-list__secondary-actions .assets-list__link-button {
+    align-self: flex-end;
+}
+
 .assets-list__link-button {
     border: 1.5px solid #cbd2e1;
     border-radius: 999px;
