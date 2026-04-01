@@ -2,7 +2,7 @@ from pathlib import Path
 from datetime import datetime
 
 from fastapi import FastAPI, Form, Request, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -10,6 +10,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 import qrcode
 from io import BytesIO
 import base64
+from PIL import Image, ImageDraw, ImageFont
 
 # Берём настройки и клиент A-Tracker из существующего кода, но здесь пока только инициализируем.
 from config import (
@@ -126,6 +127,59 @@ def _build_qr_png_base64(url: str) -> str:
     buf = BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _build_qr_label_png(asset_name: str, serial: str, invent: str, asset_id: int, uuid: str, qr_url: str) -> bytes:
+    """
+    Строим PNG-ярлык 580x293 с QR слева и текстом справа,
+    примерно по тем же параметрам, что и в A-Tracker.
+    """
+    # Общий холст
+    width, height = 580, 293
+    img = Image.new("RGB", (width, height), color="white")
+    draw = ImageDraw.Draw(img)
+
+    # QR-код
+    qr = qrcode.QRCode(border=1, box_size=5)
+    qr.add_data(qr_url)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+    # Размеры QR из настроек (примерно)
+    qr_target_w, qr_target_h = 223, 215
+    qr_img = qr_img.resize((qr_target_w, qr_target_h), Image.LANCZOS)
+    qr_x, qr_y = 6, 35
+    img.paste(qr_img, (qr_x, qr_y))
+
+    # Шрифты (берём системный, если специальных нет)
+    try:
+        title_font = ImageFont.truetype("Times New Roman.ttf", 15)
+    except Exception:
+        title_font = ImageFont.load_default()
+    try:
+        desc_font = ImageFont.truetype("Calibri.ttf", 18)
+    except Exception:
+        desc_font = ImageFont.load_default()
+
+    # Текст справа
+    start_x = 224
+    start_y = 55
+    line_height = 27
+
+    lines = [
+        asset_name or "",
+        f"Серийный номер: {serial or '-'}",
+        f"Инв. номер: {invent or '-'}",
+        f"ID в системе: {asset_id}",
+        f"UUID: {uuid or '-'}",
+    ]
+    for idx, line in enumerate(lines):
+        y = start_y + idx * line_height
+        font = title_font if idx == 0 else desc_font
+        draw.text((start_x, y), line, font=font, fill="black")
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
@@ -552,9 +606,9 @@ async def asset_detail(request: Request, asset_id: int):
     return render_template("asset_detail.html", context)
 
 
-@app.get("/assets/{asset_id}/qr-label", response_class=HTMLResponse)
+@app.get("/assets/{asset_id}/qr-label")
 async def asset_qr_label(request: Request, asset_id: int):
-    """Страница с QR-ярлыком для печати по активу."""
+    """Генерация PNG-ярлыка с QR-кодом для печати по активу."""
     fio = request.session.get("user_fio")
     email = request.session.get("user_email")
     if not fio or not email:
@@ -592,19 +646,13 @@ async def asset_qr_label(request: Request, asset_id: int):
 
     # QR-ссылка: ведём на карточку актива в A-Tracker, как в шаблоне ярлыка.
     qr_url = f"https://atrdbapp.ovp.ru/Home/Data?SQLName=itamPortfolio&ID={asset_id}"
-    qr_base64 = _build_qr_png_base64(str(qr_url))
-
-    context = {
-        "request": request,
-        "title": "QR-ярлык для печати",
-        "asset_id": asset_id,
-        "asset_name": asset_name,
-        "serial": serial,
-        "invent": invent,
-        "uuid": uuid,
-        "qr_base64": qr_base64,
-    }
-    return render_template("qr_label.html", context)
+    png_bytes = _build_qr_label_png(asset_name, serial, invent, asset_id, uuid, qr_url)
+    filename = f"asset_{asset_id}_qr.png"
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/scan-qr", response_class=HTMLResponse)
