@@ -7,6 +7,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+import qrcode
+from io import BytesIO
+import base64
 
 # Берём настройки и клиент A-Tracker из существующего кода, но здесь пока только инициализируем.
 from config import (
@@ -112,6 +115,17 @@ def _is_asset_inventoried(asset: dict) -> bool:
 
 def _norm_fio(value: str) -> str:
     return " ".join((value or "").split()).lower()
+
+
+def _build_qr_png_base64(url: str) -> str:
+    """Строим QR-код в PNG и возвращаем base64-строку для встраивания в <img>."""
+    qr = qrcode.QRCode(border=1, box_size=6)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
@@ -536,6 +550,61 @@ async def asset_detail(request: Request, asset_id: int):
         "message": request.session.pop("flash_message", None),
     }
     return render_template("asset_detail.html", context)
+
+
+@app.get("/assets/{asset_id}/qr-label", response_class=HTMLResponse)
+async def asset_qr_label(request: Request, asset_id: int):
+    """Страница с QR-ярлыком для печати по активу."""
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+
+    try:
+        client = _build_atracker_client()
+        info, err = await client.get_asset_info(asset_id)
+    except Exception:
+        info, err = None, "service_error"
+
+    if err or not info:
+        request.session["flash_message"] = "Не удалось загрузить данные актива для печати QR."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    # Владелец проверяется так же, как и в карточке, чтобы не печатать ярлык для чужой техники.
+    owner_fio = info.get("OwnerFio") or "—"
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin and _norm_fio(owner_fio) != _norm_fio(fio):
+        request.session["flash_message"] = (
+            f"Этот актив закреплён за другим сотрудником: {owner_fio}. "
+            "Печать ярлыка доступна только владельцу или администратору."
+        )
+        return RedirectResponse(url="/assets", status_code=302)
+
+    asset_name = info.get("sFullName") or info.get("Name") or f"ID {asset_id}"
+    serial = info.get("sSerialNo") or ""
+    invent = (
+        info.get("sInventoryNo")
+        or info.get("sInventNo")
+        or info.get("InventoryNo")
+        or ""
+    )
+    uuid = info.get("sPartNo") or ""
+
+    # QR-ссылка: ведём на карточку актива в A-Tracker, как в шаблоне ярлыка.
+    qr_url = f"https://atrdbapp.ovp.ru/Home/Data?SQLName=itamPortfolio&ID={asset_id}"
+    qr_base64 = _build_qr_png_base64(str(qr_url))
+
+    context = {
+        "request": request,
+        "title": "QR-ярлык для печати",
+        "asset_id": asset_id,
+        "asset_name": asset_name,
+        "serial": serial,
+        "invent": invent,
+        "uuid": uuid,
+        "qr_base64": qr_base64,
+    }
+    return render_template("qr_label.html", context)
 
 
 @app.get("/scan-qr", response_class=HTMLResponse)

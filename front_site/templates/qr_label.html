@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}QR-ярлык для актива{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card" style="max-width: 640px;">
+        <h1 class="hero__title">QR-ярлык для печати</h1>
+        <p class="hero__text" style="margin-bottom: 1rem;">
+            Актив: <strong>{{ asset_name }}</strong>
+        </p>
+
+        <div style="display: flex; gap: 16px; align-items: flex-start;">
+            <div>
+                <img src="data:image/png;base64,{{ qr_base64 }}" alt="QR-код актива">
+            </div>
+            <div style="font-family: Calibri, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px;">
+                <div>{{ asset_name }}</div>
+                <div>Серийный номер: {{ serial or "-" }}</div>
+                <div>Инв. номер: {{ invent or "-" }}</div>
+                <div>ID в системе: {{ asset_id }}</div>
+                <div>UUID: {{ uuid or "-" }}</div>
+            </div>
+        </div>
+
+        <p class="hero__text" style="margin-top: 1rem; font-size: 0.85rem; color: #6b7280;">
+            Для печати используйте команду браузера <strong>Ctrl+P</strong> / <strong>Cmd+P</strong>.
+        </p>
+        <p class="hero__text" style="margin-top: 0.5rem; font-size: 0.9rem;">
+            <a href="/assets" class="assets-list__link">← Назад к списку активов</a>
+        </p>
+    </div>
+</section>
+{% endblock %}
+
