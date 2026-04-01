@@ -275,11 +275,13 @@ html, body {
     width: 230px;
     display: inline-flex;
     justify-content: center;
+     text-decoration: none;
 }
 
 .assets-list__link-button:hover {
     background-color: #f3f4ff;
     border-color: #1B5BB5;
+    text-decoration: none;
 }
 
 .assets-list__link-button--full {
