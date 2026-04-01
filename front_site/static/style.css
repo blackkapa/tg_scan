@@ -228,6 +228,7 @@ html, body {
     background: linear-gradient(135deg, #1B5BB5, #3FA9F5);
     color: #ffffff;
     cursor: pointer;
+    box-sizing: border-box;
 }
 
 .assets-list__button--primary {
@@ -280,6 +281,7 @@ html, body {
     display: inline-flex;
     justify-content: center;
      text-decoration: none;
+    box-sizing: border-box;
 }
 
 .assets-list__link-button:hover {
