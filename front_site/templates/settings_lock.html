@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title">Настройки</h1>
+        <p class="hero__text">
+            Доступ к этой странице ограничен.
+        </p>
+        {% if message %}
+            <p class="auth-form__message auth-form__message--error" style="margin-top: 0.6rem;">
+                {{ message }}
+            </p>
+        {% endif %}
+        <form method="post" action="/settings" class="auth-form">
+            <label class="auth-form__label">
+                <span>Код доступа</span>
+                <input
+                    class="auth-form__input"
+                    type="password"
+                    name="secret"
+                    required
+                    autocomplete="off"
+                >
+            </label>
+            <button type="submit" class="auth-form__button">Открыть настройки</button>
+        </form>
+    </div>
+</section>
+{% endblock %}
+

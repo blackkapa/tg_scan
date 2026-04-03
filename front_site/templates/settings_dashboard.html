@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}Настройки{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title">Настройки</h1>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.25rem;">{{ message }}</p>
+        {% endif %}
+
+        <div class="settings-layout">
+            <div class="settings-form">
+                <h2 class="settings-subtitle">A-Tracker</h2>
+                <form method="post" action="/settings/save" class="settings-form__inner">
+                    <div class="settings-field-group">
+                        <label>
+                            <span>Базовый URL</span>
+                            <input type="text" name="atracker_base_url" class="auth-form__input"
+                                   value="{{ config.atracker_base_url }}">
+                        </label>
+                        <label>
+                            <span>Логин</span>
+                            <input type="text" name="atracker_username" class="auth-form__input"
+                                   value="{{ config.atracker_username }}">
+                        </label>
+                        <label>
+                            <span>Пароль</span>
+                            <input type="password" name="atracker_password" class="auth-form__input"
+                                   value="{{ config.atracker_password }}">
+                        </label>
+                    </div>
+
+                    <h2 class="settings-subtitle">Email / домены</h2>
+                    <div class="settings-field-group">
+                        <label>
+                            <span>Разрешённый домен</span>
+                            <input type="text" name="email_domain_allowed" class="auth-form__input"
+                                   value="{{ config.email_domain_allowed }}">
+                        </label>
+                        <label>
+                            <span>Админские email (через запятую или пробел)</span>
+                            <textarea
+                                    name="email_admin_emails"
+                                    class="auth-form__input"
+                                    rows="4"
+                                    placeholder="Напр.: admin1@asg.ru, admin2@asg.ru (или по одному в строке)"
+                            >{{ config.email_admin_emails }}</textarea>
+                        </label>
+                    </div>
+
+                    <h2 class="settings-subtitle">SMTP</h2>
+                    <div class="settings-field-group">
+                        <label>
+                            <span>SMTP host</span>
+                            <input type="text" name="smtp_host" class="auth-form__input"
+                                   value="{{ config.smtp_host }}">
+                        </label>
+                        <label>
+                            <span>SMTP port</span>
+                            <input type="text" name="smtp_port" class="auth-form__input"
+                                   value="{{ config.smtp_port }}">
+                        </label>
+                        <label>
+                            <span>Использовать SSL (true/false)</span>
+                            <input type="text" name="smtp_use_ssl" class="auth-form__input"
+                                   value="{{ config.smtp_use_ssl }}">
+                        </label>
+                        <label>
+                            <span>SMTP user</span>
+                            <input type="text" name="smtp_user" class="auth-form__input"
+                                   value="{{ config.smtp_user }}">
+                        </label>
+                        <label>
+                            <span>SMTP password</span>
+                            <input type="password" name="smtp_password" class="auth-form__input"
+                                   value="{{ config.smtp_password }}">
+                        </label>
+                        <label>
+                            <span>From email</span>
+                            <input type="text" name="smtp_from" class="auth-form__input"
+                                   value="{{ config.smtp_from }}">
+                        </label>
+                    </div>
+
+                    <div class="settings-actions">
+                        <button type="submit" class="auth-form__button">Сохранить настройки</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="settings-audit">
+                <h2 class="settings-subtitle">Активность</h2>
+                {% if audit_rows %}
+                    <div class="settings-audit-table-wrapper">
+                        <table class="settings-audit-table">
+                            <thead>
+                            <tr>
+                                <th>Время</th>
+                                <th>Email</th>
+                                <th>IP</th>
+                                <th>Действие</th>
+                                <th>Детали</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for row in audit_rows %}
+                                <tr>
+                                    <td>{{ row.ts }}</td>
+                                    <td>{{ row.email }}</td>
+                                    <td>{{ row.ip }}</td>
+                                    <td>{{ row.action }}</td>
+                                    <td>{{ row.details }}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="hero__text" style="margin-top: 0.5rem;">Записей активности пока нет.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}
+

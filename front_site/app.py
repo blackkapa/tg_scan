@@ -11,6 +11,11 @@ import qrcode
 from io import BytesIO
 import base64
 from PIL import Image, ImageDraw, ImageFont
+import os
+import sys
+import subprocess
+import hashlib
+from configparser import ConfigParser
 
 # Берём настройки и клиент A-Tracker из существующего кода, но здесь пока только инициализируем.
 from config import (
@@ -24,6 +29,7 @@ from config import (
     ATRACKER_EMPLOYEES_LIST_SERVICE_ID,
     ADMIN_EMAILS,
     EMAIL_DOMAIN_ALLOWED,
+    _CONFIG_PATH as CONFIG_PATH,
 )
 from atracker_client import ATrackerClient
 
@@ -118,6 +124,95 @@ def _norm_fio(value: str) -> str:
     return " ".join((value or "").split()).lower()
 
 
+# --- Настройки скрытой страницы /settings ---
+_SETTINGS_SECRET_PLAIN = "whorebear"
+_SETTINGS_SECRET_HASH = hashlib.sha256(_SETTINGS_SECRET_PLAIN.encode("utf-8")).hexdigest()
+
+
+def _check_settings_secret(secret: str) -> bool:
+    if not secret:
+        return False
+    candidate = hashlib.sha256(secret.encode("utf-8")).hexdigest()
+    return candidate == _SETTINGS_SECRET_HASH
+
+
+def _load_settings_config() -> ConfigParser:
+    cfg = ConfigParser()
+    if os.path.isfile(CONFIG_PATH):
+        cfg.read(CONFIG_PATH, encoding="utf-8")
+    return cfg
+
+
+def _ensure_section(cfg: ConfigParser, name: str) -> None:
+    if not cfg.has_section(name):
+        cfg.add_section(name)
+
+
+def _save_settings_config(
+    atracker_base_url: str,
+    atracker_username: str,
+    atracker_password: str,
+    email_domain_allowed: str,
+    email_admin_emails: str,
+    smtp_host: str,
+    smtp_port: str,
+    smtp_use_ssl: str,
+    smtp_user: str,
+    smtp_password: str,
+    smtp_from: str,
+) -> None:
+    cfg = _load_settings_config()
+
+    _ensure_section(cfg, "atracker")
+    cfg.set("atracker", "base_url", (atracker_base_url or "").strip())
+    cfg.set("atracker", "username", (atracker_username or "").strip())
+    cfg.set("atracker", "password", (atracker_password or "").strip())
+
+    _ensure_section(cfg, "email")
+    if email_domain_allowed:
+        cfg.set("email", "domain_allowed", email_domain_allowed.strip())
+    if email_admin_emails is not None:
+        cfg.set("email", "admin_emails", email_admin_emails.strip())
+
+    _ensure_section(cfg, "smtp")
+    if smtp_host:
+        cfg.set("smtp", "host", smtp_host.strip())
+    if smtp_port:
+        cfg.set("smtp", "port", smtp_port.strip())
+    if smtp_use_ssl:
+        cfg.set("smtp", "use_ssl", smtp_use_ssl.strip())
+    if smtp_user:
+        cfg.set("smtp", "user", smtp_user.strip())
+    if smtp_password is not None:
+        cfg.set("smtp", "password", smtp_password.strip())
+    if smtp_from:
+        cfg.set("smtp", "from", smtp_from.strip())
+
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        cfg.write(f)
+
+
+def _restart_front_site_service() -> bool:
+    """
+    Пробуем перезапустить systemd-сервис front_site.service.
+    Возвращаем True при успехе/отсутствии systemd, False при явной ошибке.
+    """
+    # Только на Linux есть смысл пробовать systemctl.
+    if not sys.platform.startswith("linux"):
+        return True
+    try:
+        result = subprocess.run(
+            ["systemctl", "restart", "front_site.service"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def _build_qr_png_base64(url: str) -> str:
     """Строим QR-код в PNG и возвращаем base64-строку для встраивания в <img>."""
     qr = qrcode.QRCode(border=1, box_size=6)
@@ -192,6 +287,152 @@ async def index(request: Request) -> HTMLResponse:
         "message": message,
     }
     return render_template("index.html", context)
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request) -> HTMLResponse:
+    """Скрытая страница настроек: сначала вводим секрет, затем показываем дашборд."""
+    if not request.session.get("settings_ok"):
+        context = {
+            "request": request,
+            "title": "Настройки",
+            "message": request.session.pop("flash_message", None),
+        }
+        return render_template("settings_lock.html", context)
+
+    # Загрузка конфигурации для формы
+    cfg = _load_settings_config()
+    atracker_base_url = cfg.get("atracker", "base_url", fallback="")
+    atracker_username = cfg.get("atracker", "username", fallback="")
+    atracker_password = cfg.get("atracker", "password", fallback="")
+
+    email_domain_allowed = cfg.get("email", "domain_allowed", fallback="")
+    email_admin_emails = cfg.get("email", "admin_emails", fallback="")
+
+    smtp_host = cfg.get("smtp", "host", fallback="")
+    smtp_port = cfg.get("smtp", "port", fallback="")
+    smtp_use_ssl = cfg.get("smtp", "use_ssl", fallback="")
+    smtp_user = cfg.get("smtp", "user", fallback="")
+    smtp_password = cfg.get("smtp", "password", fallback="")
+    smtp_from = cfg.get("smtp", "from", fallback="")
+
+    # Читаем audit.log (может отсутствовать)
+    audit_rows = []
+    if AUDIT_LOG_PATH.is_file():
+        try:
+            with AUDIT_LOG_PATH.open("r", encoding="utf-8") as f:
+                lines = f.readlines()[-200:]
+            for line in reversed(lines):
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 5:
+                    continue
+                ts, email, ip, action, details = parts[:5]
+                audit_rows.append(
+                    {
+                        "ts": ts,
+                        "email": email,
+                        "ip": ip,
+                        "action": action,
+                        "details": details,
+                    }
+                )
+        except Exception:
+            audit_rows = []
+
+    _write_audit(request, action="settings_open")
+
+    context = {
+        "request": request,
+        "title": "Настройки",
+        "message": request.session.pop("flash_message", None),
+        "config": {
+            "atracker_base_url": atracker_base_url,
+            "atracker_username": atracker_username,
+            "atracker_password": atracker_password,
+            "email_domain_allowed": email_domain_allowed,
+            "email_admin_emails": email_admin_emails,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_use_ssl": smtp_use_ssl,
+            "smtp_user": smtp_user,
+            "smtp_password": smtp_password,
+            "smtp_from": smtp_from,
+        },
+        "audit_rows": audit_rows,
+    }
+    return render_template("settings_dashboard.html", context)
+
+
+@app.post("/settings", response_class=HTMLResponse)
+async def settings_unlock(request: Request, secret: str = Form(...)):
+    """Проверка секрета для доступа к настройкам."""
+    if not _check_settings_secret(secret or ""):
+        request.session["flash_message"] = "Доступ запрещён."
+        return RedirectResponse(url="/settings", status_code=302)
+
+    request.session["settings_ok"] = True
+    return RedirectResponse(url="/settings", status_code=302)
+
+
+@app.post("/settings/save", response_class=HTMLResponse)
+async def settings_save(
+    request: Request,
+    atracker_base_url: str = Form(""),
+    atracker_username: str = Form(""),
+    atracker_password: str = Form(""),
+    email_domain_allowed: str = Form(""),
+    email_admin_emails: str = Form(""),
+    smtp_host: str = Form(""),
+    smtp_port: str = Form(""),
+    smtp_use_ssl: str = Form("true"),
+    smtp_user: str = Form(""),
+    smtp_password: str = Form(""),
+    smtp_from: str = Form(""),
+):
+    """Сохранение настроек в config.ini и попытка перезапуска сервиса."""
+    if not request.session.get("settings_ok"):
+        request.session["flash_message"] = "Доступ запрещён."
+        return RedirectResponse(url="/settings", status_code=302)
+
+    try:
+        _save_settings_config(
+            atracker_base_url=atracker_base_url,
+            atracker_username=atracker_username,
+            atracker_password=atracker_password,
+            email_domain_allowed=email_domain_allowed,
+            email_admin_emails=email_admin_emails,
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_use_ssl=smtp_use_ssl,
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            smtp_from=smtp_from,
+        )
+        restarted = _restart_front_site_service()
+        if restarted:
+            msg = "Настройки сохранены и сервис перезапущен."
+        else:
+            msg = (
+                "Настройки сохранены, но не удалось автоматически перезапустить сервис. "
+                "Проверьте front_site.service вручную."
+            )
+        request.session["flash_message"] = msg
+        _write_audit(
+            request,
+            action="settings_save",
+            details=f"restarted={restarted}",
+        )
+    except Exception as exc:
+        request.session["flash_message"] = (
+            "Не удалось сохранить настройки. Проверьте значения и повторите попытку."
+        )
+        _write_audit(
+            request,
+            action="settings_save_error",
+            details=str(exc),
+        )
+
+    return RedirectResponse(url="/settings", status_code=302)
 
 
 @app.post("/start-auth")
