@@ -373,6 +373,85 @@ html, body {
     background-color: #f3f4ff;
 }
 
+.settings-audit-filters {
+    margin-top: 0.85rem;
+}
+
+.settings-audit-filters__row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.85rem;
+    align-items: flex-end;
+}
+
+.settings-audit-filters__row label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    min-width: 180px;
+}
+
+.settings-audit-filters__actions {
+    margin-top: 0.7rem;
+}
+
+.settings-audit-table td {
+    vertical-align: top;
+}
+
+.audit-action {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.78rem;
+    color: #0f2a55;
+}
+
+.audit-details {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 520px;
+}
+
+.settings-audit-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.audit-group {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    background-color: #f9fafb;
+    padding: 0.25rem 0.7rem 0.7rem;
+}
+
+.audit-group summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 0.55rem 0;
+    font-weight: 600;
+}
+
+.audit-group summary::-webkit-details-marker {
+    display: none;
+}
+
+.audit-group__count {
+    margin-left: 0.5rem;
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.audit-group__table-wrapper {
+    margin-top: 0.4rem;
+    border-radius: 8px;
+    overflow: auto;
+    max-height: 260px;
+    border: 1px solid #e5e7eb;
+    background-color: #ffffff;
+}
+
 .site-footer {
     border-top: 1px solid #d8e2f2;
     padding: 0.75rem 1.25rem;

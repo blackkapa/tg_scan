@@ -316,28 +316,63 @@ async def settings_page(request: Request) -> HTMLResponse:
     smtp_password = cfg.get("smtp", "password", fallback="")
     smtp_from = cfg.get("smtp", "from", fallback="")
 
+    # Фильтры для читаемости аудита (по query-параметрам)
+    try:
+        limit = int(request.query_params.get("limit", "60"))
+    except ValueError:
+        limit = 60
+    limit = max(10, min(limit, 200))
+    filter_email = (request.query_params.get("filter_email", "") or "").strip().lower()
+    filter_action = (request.query_params.get("filter_action", "") or "").strip().lower()
+
     # Читаем audit.log (может отсутствовать)
     audit_rows = []
     if AUDIT_LOG_PATH.is_file():
         try:
             with AUDIT_LOG_PATH.open("r", encoding="utf-8") as f:
-                lines = f.readlines()[-200:]
+                # Берём запас, чтобы фильтры не "пустили" таблицу.
+                window = max(200, limit * 5)
+                lines = f.readlines()[-window:]
             for line in reversed(lines):
                 parts = line.rstrip("\n").split("\t")
                 if len(parts) < 5:
                     continue
                 ts, email, ip, action, details = parts[:5]
+                row = {
+                    "ts": ts,
+                    "email": email,
+                    "ip": ip,
+                    "action": action,
+                    "details": details,
+                }
+                if filter_email and filter_email not in (email or "").lower():
+                    continue
+                if filter_action and filter_action not in (action or "").lower():
+                    continue
                 audit_rows.append(
                     {
-                        "ts": ts,
-                        "email": email,
-                        "ip": ip,
-                        "action": action,
-                        "details": details,
+                        "ts": row["ts"],
+                        "email": row["email"],
+                        "ip": row["ip"],
+                        "action": row["action"],
+                        "details": row["details"],
                     }
                 )
         except Exception:
             audit_rows = []
+
+    # Ограничиваем количество строк сверху (audit_rows уже в порядке "самое свежее первым")
+    audit_rows = audit_rows[:limit]
+
+    # Группируем записи по action, чтобы в UI можно было разворачивать секции.
+    audit_groups = []
+    seen_actions = {}
+    for row in audit_rows:
+        action = row.get("action") or "-"
+        if action not in seen_actions:
+            seen_actions[action] = len(audit_groups)
+            audit_groups.append({"action": action, "rows": []})
+        audit_groups[seen_actions[action]]["rows"].append(row)
 
     _write_audit(request, action="settings_open")
 
@@ -359,6 +394,7 @@ async def settings_page(request: Request) -> HTMLResponse:
             "smtp_from": smtp_from,
         },
         "audit_rows": audit_rows,
+        "audit_groups": audit_groups,
     }
     return render_template("settings_dashboard.html", context)
 
