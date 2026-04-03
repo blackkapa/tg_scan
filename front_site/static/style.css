@@ -462,6 +462,7 @@ html, body {
 .site-footer__inner {
     max-width: 960px;
     margin: 0 auto;
+    text-align: center;
 }
 
 @media (max-width: 600px) {
