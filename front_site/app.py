@@ -325,6 +325,9 @@ async def settings_page(request: Request) -> HTMLResponse:
     filter_email = (request.query_params.get("filter_email", "") or "").strip().lower()
     filter_action = (request.query_params.get("filter_action", "") or "").strip().lower()
 
+    # Сразу пишем текущий визит, чтобы в таблице/группах он отображался уже на этом же открытии.
+    _write_audit(request, action="settings_open")
+
     # Читаем audit.log (может отсутствовать)
     audit_rows = []
     if AUDIT_LOG_PATH.is_file():
@@ -373,8 +376,6 @@ async def settings_page(request: Request) -> HTMLResponse:
             seen_actions[action] = len(audit_groups)
             audit_groups.append({"action": action, "rows": []})
         audit_groups[seen_actions[action]]["rows"].append(row)
-
-    _write_audit(request, action="settings_open")
 
     context = {
         "request": request,
