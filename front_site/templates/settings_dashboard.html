@@ -129,40 +129,32 @@
                     </div>
                 </form>
 
-                {% if audit_groups %}
-                    <div class="settings-audit-groups">
-                        {% for g in audit_groups %}
-                            <details class="audit-group" {% if loop.first %}open{% endif %}>
-                                <summary>
-                                    <span class="audit-action">{{ g.action }}</span>
-                                    <span class="audit-group__count">({{ g.rows|length }})</span>
-                                </summary>
-                                <div class="audit-group__table-wrapper">
-                                    <table class="settings-audit-table">
-                                        <thead>
-                                        <tr>
-                                            <th>Время</th>
-                                            <th>Email</th>
-                                            <th>IP</th>
-                                            <th>Детали</th>
-                                        </tr>
-                                        </thead>
-                                        <tbody>
-                                        {% for row in g.rows %}
-                                            <tr>
-                                                <td>{{ row.ts }}</td>
-                                                <td>{{ row.email }}</td>
-                                                <td>{{ row.ip }}</td>
-                                                <td>
-                                                    <div class="audit-details">{{ row.details }}</div>
-                                                </td>
-                                            </tr>
-                                        {% endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </details>
-                        {% endfor %}
+                {% if audit_rows %}
+                    <div class="settings-audit-table-wrapper">
+                        <table class="settings-audit-table">
+                            <thead>
+                            <tr>
+                                <th>Время</th>
+                                <th>Email</th>
+                                <th>IP</th>
+                                <th>Действие</th>
+                                <th>Детали</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            {% for row in audit_rows %}
+                                <tr>
+                                    <td>{{ row.ts }}</td>
+                                    <td>{{ row.email }}</td>
+                                    <td>{{ row.ip }}</td>
+                                    <td><span class="audit-action">{{ row.action }}</span></td>
+                                    <td>
+                                        <div class="audit-details">{{ row.details }}</div>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                 {% else %}
                     <p class="hero__text" style="margin-top: 0.5rem;">Записей активности пока нет.</p>

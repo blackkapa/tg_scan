@@ -364,18 +364,8 @@ async def settings_page(request: Request) -> HTMLResponse:
         except Exception:
             audit_rows = []
 
-    # Ограничиваем количество строк сверху (audit_rows уже в порядке "самое свежее первым")
+    # Ограничиваем количество строк сверху (audit_rows уже в порядке \"самое свежее первым\")
     audit_rows = audit_rows[:limit]
-
-    # Группируем записи по action, чтобы в UI можно было разворачивать секции.
-    audit_groups = []
-    seen_actions = {}
-    for row in audit_rows:
-        action = row.get("action") or "-"
-        if action not in seen_actions:
-            seen_actions[action] = len(audit_groups)
-            audit_groups.append({"action": action, "rows": []})
-        audit_groups[seen_actions[action]]["rows"].append(row)
 
     context = {
         "request": request,
@@ -395,7 +385,6 @@ async def settings_page(request: Request) -> HTMLResponse:
             "smtp_from": smtp_from,
         },
         "audit_rows": audit_rows,
-        "audit_groups": audit_groups,
     }
     return render_template("settings_dashboard.html", context)
 
