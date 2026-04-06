@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Заявка на добавление техники {{ req.request_number or req.id[:8] }}{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <p class="hero__text hero__text--muted" style="margin: 0 0 0.35rem;">Добавление техники</p>
+        <h1 class="hero__title hero__title--center" style="margin-top: 0;">Заявка {{ req.request_number or req.id[:8] }}</h1>
+        <p style="text-align: center; margin: 0 0 1rem;">
+            <span class="status-badge status-badge--asset-add-{{ req.status }}">{{ req.status | asset_add_status_ru }}</span>
+        </p>
+
+        {% if message %}
+            <p class="auth-form__message">{{ message }}</p>
+        {% endif %}
+
+        {% if req.status == "pending_review" %}
+            <div class="info-callout">
+                <strong>Статус:</strong> заявка отправлена на проверку администратору.
+            </div>
+        {% elif req.status == "rejected" %}
+            <div class="info-callout info-callout--warn">
+                <strong>Статус:</strong> заявка отклонена.
+                {% if req.reject_comment %}
+                    <br><strong>Причина:</strong> {{ req.reject_comment }}
+                {% endif %}
+            </div>
+        {% else %}
+            <div class="info-callout info-callout--success">
+                <strong>Статус:</strong> заявка подтверждена.
+            </div>
+        {% endif %}
+
+        <div class="assets-list">
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Инициатор</div>
+                    <div class="assets-list__meta">{{ req.requester_fio }} ({{ req.requester_email }})</div>
+                </div>
+            </div>
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Категория</div>
+                    <div class="assets-list__meta">{{ req.category_name or "—" }}</div>
+                </div>
+            </div>
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Наименование</div>
+                    <div class="assets-list__meta">{{ req.asset_name or "—" }}</div>
+                </div>
+            </div>
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Серийный номер / Инвентарный номер</div>
+                    <div class="assets-list__meta">{{ req.serial_number or "—" }} / {{ req.inventory_number or "—" }}</div>
+                </div>
+            </div>
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Комментарий</div>
+                    <div class="assets-list__meta">{{ req.comment or "—" }}</div>
+                </div>
+            </div>
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Локация заявителя</div>
+                    <div class="assets-list__meta">{{ req.requester_location_name or "—" }}</div>
+                </div>
+            </div>
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Номер заявки SD</div>
+                    <div class="assets-list__meta">{{ req.sd_request_number or "—" }}</div>
+                </div>
+            </div>
+            {% if req.atracker_req_number %}
+                <div class="assets-list__item">
+                    <div class="assets-list__main">
+                        <div class="assets-list__name">A-Tracker</div>
+                        <div class="assets-list__meta">Номер заявки: {{ req.atracker_req_number }}</div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <h2 class="settings-subtitle" style="margin-top: 1rem;">Фото</h2>
+        {% if req.photos %}
+            <div class="asset-add-gallery">
+                {% for p in req.photos %}
+                    <a class="asset-add-gallery__item"
+                       href="/asset-add/{{ req.id }}/photo/{{ loop.index0 }}"
+                       target="_blank"
+                       rel="noopener"
+                       title="Открыть оригинал">
+                        <img src="/asset-add/{{ req.id }}/photo/{{ loop.index0 }}"
+                             alt="{{ p.name or ('Фото ' ~ loop.index) }}"
+                             loading="lazy">
+                        <span class="asset-add-gallery__name">{{ p.name or ("Фото " ~ loop.index) }}</span>
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="hero__text">Фото не загружены.</p>
+        {% endif %}
+
+        {% if is_admin and req.status == "pending_review" %}
+            <h2 class="settings-subtitle" style="margin-top: 1rem;">Подтверждение администратором</h2>
+            <form id="asset-add-approve-form" method="post" action="/admin/asset-add/{{ req.id }}/approve" class="auth-form" style="margin-top: 0.5rem;">
+                <input type="hidden" name="sd_request_number" id="sd_request_number" value="{{ req.sd_request_number or '' }}">
+                <label class="auth-form__label">
+                    <span>Категория *</span>
+                    <select class="auth-form__input" name="category_id" required>
+                        <option value="">Выберите категорию</option>
+                        {% for c in category_options or [] %}
+                            <option value="{{ c.id }}"
+                                {% if (req.atracker_category_id or 0) == c.id or ((req.atracker_category_id or 0) == 0 and (req.category_name or '') == (c.name or '')) %}selected{% endif %}>
+                                {{ c.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <input type="hidden" name="category_name" value="{{ req.category_name or '' }}">
+                </label>
+                <label class="auth-form__label">
+                    <span>Локация сотрудника</span>
+                    <select class="auth-form__input" name="location_id">
+                        <option value="">Не менять / не указывать</option>
+                        {% for loc in location_options or [] %}
+                            <option value="{{ loc.id }}" {% if (req.atracker_location_id or req.requester_location_id or 0) == loc.id %}selected{% endif %}>
+                                {{ loc.display_name or loc.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <label class="auth-form__label">
+                    <span>Наименование *</span>
+                    <input class="auth-form__input" type="text" name="asset_name" value="{{ req.asset_name or '' }}" required>
+                </label>
+                <label class="auth-form__label">
+                    <span>Серийный номер</span>
+                    <input class="auth-form__input" type="text" name="serial_number" value="{{ req.serial_number or '' }}">
+                </label>
+                <label class="auth-form__label">
+                    <span>Инвентарный номер</span>
+                    <input class="auth-form__input" type="text" name="inventory_number" value="{{ req.inventory_number or '' }}">
+                </label>
+                <label class="auth-form__label">
+                    <span>Комментарий</span>
+                    <input class="auth-form__input" type="text" name="comment" value="{{ req.comment or '' }}">
+                </label>
+                <button type="submit" class="auth-form__button">Подтвердить заявку</button>
+            </form>
+            <form method="post" action="/admin/asset-add/{{ req.id }}/reject" class="auth-form" style="margin-top: 0.75rem;">
+                <label class="auth-form__label">
+                    <span>Комментарий причины отклонения *</span>
+                    <input class="auth-form__input" type="text" name="reject_comment" required placeholder="Например: недостаточно данных, нечитабельные фото...">
+                </label>
+                <button type="submit" class="assets-list__link-button assets-list__link-button--full">Отклонить заявку</button>
+            </form>
+        {% endif %}
+    </div>
+</section>
+{% if is_admin and req.status == "pending_review" %}
+<script>
+(() => {
+  const form = document.getElementById("asset-add-approve-form");
+  const sdInput = document.getElementById("sd_request_number");
+  if (!form || !sdInput) return;
+  form.addEventListener("submit", (e) => {
+    let current = (sdInput.value || "").trim();
+    while (!current) {
+      const entered = window.prompt("Введите номер заявки SD", current || "");
+      if (entered === null) {
+        e.preventDefault();
+        return;
+      }
+      current = (entered || "").trim();
+      if (!current) {
+        window.alert("Номер заявки SD обязателен.");
+      }
+    }
+    sdInput.value = current;
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

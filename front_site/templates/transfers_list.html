@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Заявки{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title hero__title--center">Заявки</h1>
+        <p class="page-lead">Здесь заявки на перемещение техники, где вы указаны как отправитель или получатель, и заявки на добавление техники. Откройте карточку — этапы, действия и накладная для печати.</p>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        {% if not items %}
+            <div class="empty-state">
+                <p>Пока нет заявок на перемещение техники.</p>
+                <p class="empty-state__action"><a href="/assets" class="assets-list__link">Перейти к моим активам</a> — выберите технику и оформите заявку на перемещение.</p>
+            </div>
+        {% else %}
+            <div class="assets-list">
+                {% for t in items %}
+                    <div class="assets-list__item">
+                        <div class="assets-list__main">
+                            {% if t.kind == "asset_add" %}
+                                <div class="assets-list__name">
+                                    Заявка на добавление техники {{ t.request_number or t.id[:8] }}
+                                    <span class="status-badge status-badge--asset-add-{{ t.status }}" style="margin-left: 0.35rem;">{{ t.status | asset_add_status_ru }}</span>
+                                </div>
+                                <div class="assets-list__meta">
+                                    <span>Наименование: {{ t.title }}</span><br>
+                                    <span>Категория: {{ t.category_name or "—" }}</span><br>
+                                    <span>Фото: {{ t.photos_count or 0 }}</span>
+                                    {% if t.atracker_req_number %}
+                                        <br><span>A-Tracker: {{ t.atracker_req_number }}</span>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <div class="assets-list__name">
+                                    {% if t.waybill_number %}Накладная {{ t.waybill_number }}{% else %}Заявка {{ t.id[:8] }}{% endif %}
+                                    <span class="status-badge status-badge--{{ t.status }}" style="margin-left: 0.35rem;">{{ t.status | transfer_status_ru }}</span>
+                                </div>
+                                <div class="assets-list__meta">
+                                    <span>От: {{ t.from_fio }} ({{ t.from_email }})</span><br>
+                                    <span>Кому: {{ t.to_fio }} ({{ t.to_email }})</span><br>
+                                    <span>Активов: {{ (t.assets or [])|length }}</span>
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="assets-list__actions">
+                            {% if t.kind == "asset_add" %}
+                                <a class="assets-list__link-button" href="/asset-add/{{ t.id }}">Открыть</a>
+                            {% else %}
+                                <a class="assets-list__link-button" href="/transfers/{{ t.id }}">Открыть</a>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+

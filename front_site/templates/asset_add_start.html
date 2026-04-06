@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Добавить технику{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card asset-add-start-card">
+        <h1 class="hero__title hero__title--center">Добавить технику</h1>
+        <p class="page-lead">
+            Заполните заявку и приложите фото техники. После отправки заявка попадёт администратору на проверку.
+        </p>
+        {% if message %}
+            <p class="auth-form__message">{{ message }}</p>
+        {% endif %}
+        <form method="post" action="/asset-add/start" enctype="multipart/form-data" class="auth-form">
+            <label class="auth-form__label">
+                <span>Категория *</span>
+                <select class="auth-form__input" name="category_name" required>
+                    <option value="">Выберите категорию</option>
+                    {% for c in category_options or [] %}
+                        <option value="{{ c.name }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label class="auth-form__label">
+                <span>Наименование техники *</span>
+                <input class="auth-form__input" type="text" name="asset_name" required>
+            </label>
+            <label class="auth-form__label">
+                <span>Серийный номер</span>
+                <input class="auth-form__input" type="text" name="serial_number">
+            </label>
+            <label class="auth-form__label">
+                <span>Инвентарный номер</span>
+                <input class="auth-form__input" type="text" name="inventory_number">
+            </label>
+            <label class="auth-form__label">
+                <span>Ваша локация <small>(Если не удается найти локацию в списке, добавьте ее в комментарий)</small></span>
+                <select class="auth-form__input" name="requester_location_id">
+                    <option value="">Не выбрано</option>
+                    {% for loc in location_options or [] %}
+                        <option value="{{ loc.id }}">{{ loc.display_name or loc.name }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label class="auth-form__label">
+                <span>Комментарий</span>
+                <input class="auth-form__input" type="text" name="comment" placeholder="Например, где обнаружена техника или назначение">
+            </label>
+            <label class="auth-form__label">
+                <span>Фото техники (1-10, JPG/PNG/WEBP) *</span>
+                <input class="auth-form__input" type="file" name="files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required>
+            </label>
+            <span class="auth-form__hint">Максимум 10 фото, размер каждого до 10 МБ.</span>
+            <button type="submit" class="auth-form__button">Отправить заявку</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

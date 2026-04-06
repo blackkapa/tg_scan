@@ -6,9 +6,13 @@
 <section class="hero">
     <div class="hero__card">
         <h1 class="hero__title hero__title--center">Мои активы</h1>
-        <p class="hero__text">
-            {{ fio }}. Ниже список техники, которая сейчас закреплена за вами.
+        <p class="page-lead">
+            {{ fio }}, здесь техника, закреплённая за вами в A-Tracker. Зелёная строка — инвентаризация по этой позиции уже отмечена; красная — осталось пройти проверку или загрузить фото с QR.
         </p>
+        <div class="assets-list__legend" aria-hidden="true">
+            <span><span class="assets-list__legend-mark assets-list__legend-mark--ok"></span> Инвентаризация отмечена</span>
+            <span><span class="assets-list__legend-mark assets-list__legend-mark--no"></span> Требуется действие</span>
+        </div>
         {% if is_admin %}
             <p class="hero__text" style="margin-top: 0.25rem; font-size: 0.85rem; color: #166534;">
                 Вы вошли как администратор. <a href="/admin" class="assets-list__link">Перейти в режим админа</a>
@@ -22,6 +26,11 @@
                 <div class="assets-list__item {% if a.inventoried %}assets-list__item--done{% else %}assets-list__item--pending{% endif %}">
                     <div class="assets-list__main">
                         <div class="assets-list__name">
+                            {% if transfer_requests_enabled %}
+                            <label style="margin-right: 0.35rem;">
+                                <input type="checkbox" class="transfer-asset-checkbox" value="{{ a.id }}" aria-label="Включить в заявку на перемещение техники: {{ a.name }}">
+                            </label>
+                            {% endif %}
                             {% if a.inventoried %}
                                 ✅
                             {% else %}
@@ -117,7 +126,31 @@
                 </div>
             {% endfor %}
         </div>
+        {% if transfer_requests_enabled %}
+        <div class="assets-qr-block" style="margin-top: 0.75rem;">
+            <p class="auth-form__hint" style="margin-bottom: 0.5rem;">Отметьте галочками позиции и нажмите кнопку — откроется форма оформления перемещения техники выбранному сотруднику.</p>
+            <button type="button"
+                    class="assets-list__button assets-list__button--primary"
+                    style="width: 100%;"
+                    onclick="
+                        const selected = Array.from(document.querySelectorAll('.transfer-asset-checkbox:checked')).map(x => x.value);
+                        if (!selected.length) { alert('Выберите хотя бы один актив для перемещения техники.'); return; }
+                        window.location.href = '/transfer/start?asset_ids=' + selected.join(',');
+                    ">
+                Оформить перемещение выбранных активов
+            </button>
+        </div>
+        {% endif %}
         <div class="assets-qr-block">
+            {% if asset_add_button_enabled %}
+            <a href="/asset-add/start"
+               id="asset-add-button"
+               class="assets-list__link-button assets-list__link-button--full"
+               title="Создать заявку на добавление новой техники">
+                Добавить технику
+            </a>
+            <p class="auth-form__hint" style="margin-top: 0.5rem;">Создайте заявку на добавление новой техники с фото — администратор проверит и подтвердит.</p>
+            {% endif %}
             <!-- Узнать, чья техника по QR: сразу открываем выбор фото и отправляем на /scan-qr -->
             <form method="post"
                   action="/scan-qr"

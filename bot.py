@@ -49,7 +49,7 @@ from config import (
     EMAIL_DOMAIN_ALLOWED,
     ADMIN_TELEGRAM_IDS,
 )
-from atracker_client import ATrackerClient
+from atracker_client import ATrackerClient, inventory_number_from_atracker_dict
 from auth_by_email import (
     find_employee_by_input,
     create_code,
@@ -878,7 +878,7 @@ async def _do_identify_asset(message: Message, state: FSMContext, asset_id: int)
     name = info.get("sFullName", f"ID {asset_id}")
     owner = info.get("OwnerFio", "—")
     serial = (info.get("sSerialNo") or "").strip() or "—"
-    inv_no = (info.get("sInventoryNo") or "").strip() or "—"
+    inv_no = inventory_number_from_atracker_dict(info) or "—"
     await message.answer(
         f"<b>Актив ID {asset_id}</b>: {html.escape(name)}\n\n"
         f"Серийный номер: {html.escape(serial)}\n"

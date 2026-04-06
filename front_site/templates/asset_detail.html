@@ -17,7 +17,7 @@
                 Владелец: <strong>{{ asset.OwnerFio }}</strong>
             </p>
             <p class="hero__text" style="margin-top: 0.5rem;">
-                Инвентарный номер: {{ asset.sInventoryNo or "-" }}<br>
+                Инвентарный номер: {{ asset.sInventNumber or asset.sInventoryNo or "-" }}<br>
                 Серийный номер: {{ asset.sSerialNo or "-" }}
             </p>
 

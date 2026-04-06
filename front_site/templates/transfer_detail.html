@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Заявка на перемещение {% if tr.waybill_number %}{{ tr.waybill_number }}{% else %}{{ tr.id[:8] }}{% endif %}{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <p class="hero__text hero__text--muted" style="margin: 0 0 0.35rem;">Заявка на перемещение техники</p>
+        <h1 class="hero__title hero__title--center" style="margin-top: 0;">
+            {% if tr.waybill_number %}Накладная {{ tr.waybill_number }}{% else %}Заявка {{ tr.id[:8] }}{% endif %}
+        </h1>
+
+        <p style="text-align: center; margin: 0 0 1rem;">
+            <span class="status-badge status-badge--{{ tr.status }}">{{ tr.status | transfer_status_ru }}</span>
+            {% if tr.status == "cancelled" and tr.cancel_reason %}
+                <span class="hero__text hero__text--muted" style="display: inline; margin-left: 0.35rem;">— {{ tr.cancel_reason }}</span>
+            {% endif %}
+        </p>
+
+        {% if tr.status != "cancelled" %}
+        <div class="transfer-steps" aria-label="Этапы перемещения техники">
+            {% set st = tr.status %}
+            <span class="transfer-steps__item {% if st == 'pending_receiver' %}transfer-steps__item--current{% elif st in ['pending_scan', 'ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
+                <span class="transfer-steps__num">1</span> Получатель
+            </span>
+            <span class="transfer-steps__sep">→</span>
+            <span class="transfer-steps__item {% if st == 'pending_scan' %}transfer-steps__item--current{% elif st in ['ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
+                <span class="transfer-steps__num">2</span> Подпись акта
+            </span>
+            <span class="transfer-steps__sep">→</span>
+            <span class="transfer-steps__item {% if st == 'ready_for_admin' %}transfer-steps__item--current{% elif st == 'completed' %}transfer-steps__item--done{% endif %}">
+                <span class="transfer-steps__num">3</span> Проверка администратором
+            </span>
+            <span class="transfer-steps__sep">→</span>
+            <span class="transfer-steps__item {% if st == 'completed' %}transfer-steps__item--current transfer-steps__item--done{% endif %}">
+                <span class="transfer-steps__num">4</span> Готово
+            </span>
+        </div>
+        {% endif %}
+
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0;">{{ message }}</p>
+        {% endif %}
+
+        {# Подсказка: что сделать сейчас #}
+        {% if tr.status == "pending_receiver" and is_recipient %}
+            <div class="info-callout" role="status">
+                <strong>Ваш шаг:</strong> подтвердите, что согласны получить технику, или отклоните заявку — отправитель получит письмо.
+            </div>
+        {% elif tr.status == "pending_receiver" and is_sender %}
+            <div class="info-callout">
+                <strong>Ваш шаг:</strong> дождитесь решения получателя. Пока ждёте, можно распечатать накладную по ссылке ниже.
+            </div>
+        {% elif tr.status == "pending_scan" %}
+            <div class="info-callout">
+                <strong>Ваш шаг:</strong> распечатайте накладную, подпишите акт, загрузите скан PDF или DOCX. После проверки заявка уйдёт администратору.
+            </div>
+        {% elif tr.status == "ready_for_admin" and not is_admin %}
+            <div class="info-callout">
+                Заявка на проверке у администратора. После утверждения вы получите письмо на почту.
+            </div>
+        {% elif tr.status == "ready_for_admin" and is_admin %}
+            <div class="info-callout info-callout--warn">
+                <strong>Администратор:</strong> проверьте подписанный акт и нажмите «Подтвердить» — будет создана операция перемещения в A-Tracker.
+            </div>
+        {% elif tr.status == "completed" %}
+            <div class="info-callout info-callout--success">
+                <strong>Готово.</strong> Заявка выполнена, перемещение проведено в системе. Детали операции — ниже; копия уведомления отправлена участникам на почту.
+            </div>
+        {% elif tr.status == "cancelled" %}
+            <div class="info-callout">
+                Заявка закрыта. При необходимости создайте новую заявку на перемещение из списка активов.
+            </div>
+        {% endif %}
+
+        <div class="transfer-detail__meta" style="margin-top: 0.5rem;">
+            <p class="hero__text">
+                <span class="hero__text--muted">Отправитель</span><br>
+                <strong>{{ tr.from_fio }}</strong><br>
+                <a href="mailto:{{ tr.from_email }}" class="assets-list__link">{{ tr.from_email }}</a>
+            </p>
+            <p class="hero__text" style="margin-top: 0.75rem;">
+                <span class="hero__text--muted">Получатель</span><br>
+                <strong>{{ tr.to_fio }}</strong><br>
+                <a href="mailto:{{ tr.to_email }}" class="assets-list__link">{{ tr.to_email }}</a>
+            </p>
+            <p class="hero__text" style="margin-top: 0.75rem;">
+                <span class="hero__text--muted">Организация</span><br>
+                {{ tr.organization_name }}
+            </p>
+        </div>
+        <p class="hero__text transfer-detail__route">
+            <span class="hero__text--muted">Маршрут</span><br>
+            Откуда: {{ from_city_display or "—" }} · Куда: {{ tr.receiver_location_name or tr.to_city or "—" }}
+        </p>
+        {% if tr.notification_sent_at or tr.notification_last_error %}
+            <p class="hero__text" style="margin-top: 0.5rem;">
+                <span class="hero__text--muted">Уведомление администратору о скане</span><br>
+                {% if tr.notification_sent_at %}
+                    отправлено {{ tr.notification_sent_at }}
+                {% endif %}
+                {% if tr.notification_last_error %}
+                    <span style="color: #b00020;">Ошибка: {{ tr.notification_last_error }}</span>
+                {% endif %}
+            </p>
+        {% endif %}
+        {% if tr.status == "completed" and tr.operation_number %}
+            <p class="hero__text" style="margin-top: 0.5rem;">
+                {{ tr.operation_number | operation_transfer_label }}
+                {% if tr.attachment_failures %}
+                    <br><span style="color: #b00020;">Вложение не ко всем активам, ID: {{ tr.attachment_failures }}</span>
+                {% endif %}
+            </p>
+        {% endif %}
+        {% if tr.posting_last_error and tr.status != "completed" %}
+            <p class="hero__text" style="margin-top: 0.5rem;"><span style="color: #b00020;">Ошибка A-Tracker: {{ tr.posting_last_error }}</span></p>
+        {% endif %}
+        {% if tr.status not in ["completed", "ready_for_admin"] %}
+        <p class="hero__text" style="margin-top: 0.75rem;">
+            <a class="assets-list__link" href="/transfers/{{ tr.id }}/act" target="_blank" rel="noopener">Открыть накладную для печати</a>
+            <span class="hero__text--muted" style="font-size: 0.82rem;"> (откроется в новой вкладке)</span>
+        </p>
+        {% endif %}
+
+        {% if is_admin and tr.status == "ready_for_admin" and tr.scan_file_path %}
+        <div class="transfer-detail__scan-block">
+            <p class="hero__text" style="margin-bottom: 0.5rem;"><strong>Подписанный акт (проверка перед утверждением)</strong></p>
+            {% if tr.scan_original_name and ('.pdf' in tr.scan_original_name.lower()) %}
+            <iframe class="transfer-detail__scan-preview" src="{{ url_for('transfer_signed_scan_file', transfer_id=tr.id) }}" title="Подписанный акт"></iframe>
+            {% else %}
+            <p class="hero__text">
+                <a class="assets-list__link" href="{{ url_for('transfer_signed_scan_file', transfer_id=tr.id) }}">Скачать подписанный файл</a>
+                {% if tr.scan_original_name %}({{ tr.scan_original_name }}){% endif %}
+            </p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <h2 class="settings-subtitle" style="margin-top: 1.25rem;">Состав заявки</h2>
+        <div class="assets-list">
+            {% for a in tr.assets or [] %}
+                <div class="assets-list__item">
+                    <div class="assets-list__main">
+                        <div class="assets-list__name">{{ a.name }}</div>
+                        <div class="assets-list__meta">
+                            <span>Инвентарный номер: {{ a.invent or "-" }}</span><br>
+                            <span>Серийный номер: {{ a.serial or "-" }}</span>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {% if is_recipient and tr.status == "pending_receiver" %}
+            <div class="auth-form" style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 1rem;">
+                <form method="post" action="/transfers/{{ tr.id }}/confirm" style="display: inline;">
+                    <button type="submit" class="auth-form__button">Подтвердить получение</button>
+                </form>
+                <form method="post" action="/transfers/{{ tr.id }}/reject" style="display: inline;" onsubmit="return confirm('Отклонить получение оборудования? Отправитель получит уведомление на почту.');">
+                    <button type="submit" class="assets-list__link-button">Отклонить</button>
+                </form>
+            </div>
+        {% endif %}
+
+        {% if tr.status == "pending_scan" %}
+            <form method="post" action="/transfers/{{ tr.id }}/upload-scan" enctype="multipart/form-data" class="auth-form" style="margin-top: 1rem;">
+                <label class="auth-form__label">
+                    <span>Подписанный акт (PDF или DOCX)</span>
+                    <input class="auth-form__input" type="file" name="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+                </label>
+                <span class="auth-form__hint">Файл должен содержать текст для автоматической проверки (не «пустой» скан).</span>
+                <button type="submit" class="auth-form__button">Загрузить акт</button>
+            </form>
+        {% endif %}
+
+        {% if tr.status not in ["completed", "cancelled"] and not is_recipient %}
+            {% if is_admin or (is_sender and tr.status == "pending_receiver") %}
+            <form method="post" action="/transfers/{{ tr.id }}/cancel" class="auth-form" style="margin-top: 1rem;">
+                <button type="submit" class="assets-list__link-button assets-list__link-button--full">Отменить перемещение</button>
+            </form>
+            {% endif %}
+        {% endif %}
+
+        {% if is_admin and tr.status == "ready_for_admin" %}
+            <form method="post" action="/admin/transfers/{{ tr.id }}/complete" class="auth-form" style="margin-top: 1rem;">
+                <p class="hero__text" style="margin-bottom: 0.75rem;">
+                    Подтвердите перемещение в A-Tracker: будет вызван сервис перемещения, затем тот же подписанный файл прикрепится к каждому активу в заявке.
+                </p>
+                <button type="submit" class="auth-form__button">Подтвердить перемещение и вложения</button>
+            </form>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

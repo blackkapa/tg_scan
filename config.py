@@ -87,6 +87,64 @@ def _parse_admin_emails() -> frozenset[str]:
 
 ADMIN_EMAILS = _parse_admin_emails()
 
+
+def _parse_bypass_code_emails() -> frozenset[str]:
+    """Почты, для которых в вебе не требуется код из письма (вход сразу после проверки в A‑Tracker)."""
+    raw = _get("email", "bypass_code_emails", "")
+    if not raw:
+        return frozenset()
+    items: list[str] = []
+    for part in raw.replace(",", " ").split():
+        part = part.strip().lower()
+        if part:
+            items.append(part)
+    return frozenset(items)
+
+
+BYPASS_CODE_EMAILS = _parse_bypass_code_emails()
+
+# Устарело: раньше общий ящик для уведомления о скане; см. transfer_admin_confirm_email
+TRANSFER_NOTIFICATION_TO = _get("email", "transfer_notification_to", "")
+# Письмо «Подтвердить перемещение №…» с вложением скана (шаг после загрузки акта)
+TRANSFER_ADMIN_CONFIRM_EMAIL = _get("email", "transfer_admin_confirm_email", "mikhail.melgit@asg.ru")
+
+# Публичный URL сайта для ссылок в письмах (без завершающего /), например https://inventory.example.com
+WEB_PUBLIC_BASE_URL = _get("web", "public_base_url", "")
+
+# Кнопка «Добавить технику» на /assets и форма /asset-add/start (false — скрыть и закрыть подачу новых заявок)
+WEB_ASSET_ADD_BUTTON_ENABLED = _getbool("web", "asset_add_button_enabled", True)
+
+# Заявки на перемещение техники: чекбоксы на /assets, /transfer/start, список transfer в «Заявках» (false — отключить контур)
+WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
+
+
+def reload_web_flags_from_disk() -> None:
+    """Перечитать config.ini и обновить переменные [web] в памяти (после /settings/save без обязательного рестарта)."""
+    global _cfg, WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED
+    _cfg = ConfigParser()
+    if os.path.isfile(_CONFIG_PATH):
+        _cfg.read(_CONFIG_PATH, encoding="utf-8")
+    WEB_PUBLIC_BASE_URL = _get("web", "public_base_url", "")
+    WEB_ASSET_ADD_BUTTON_ENABLED = _getbool("web", "asset_add_button_enabled", True)
+    WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
+
+
+# ID кастомного сервиса A-Tracker: утверждение перемещения (как мастер OneLineTransit2). 0 — не вызывать.
+ATRACKER_TRANSFER_POSTING_SERVICE_ID = _getint("atracker", "transfer_posting_service_id", 0)
+
+# Справочник местоположений (GET), как ReturnEmpl. 0 — в форме передачи подставляются только места с выбранных активов.
+ATRACKER_LOCATIONS_LIST_SERVICE_ID = _getint("atracker", "locations_list_service_id", 0)
+
+# Справочник категорий активов (GET, itamCategory), по аналогии с locations_list. 0 — имя категории только если пришло в карточке актива.
+ATRACKER_CATEGORIES_LIST_SERVICE_ID = _getint("atracker", "categories_list_service_id", 0)
+
+# Сервисы потока «Добавить технику» (0 — пока не настроено, используется только локальный контур веба).
+ATRACKER_ASSET_ADD_REQUEST_CREATE_SERVICE_ID = _getint("atracker", "asset_add_request_create_service_id", 0)
+ATRACKER_ASSET_ADD_REQUEST_GET_SERVICE_ID = _getint("atracker", "asset_add_request_get_service_id", 0)
+ATRACKER_PORTFOLIO_CREATE_SERVICE_ID = _getint("atracker", "portfolio_create_service_id", 0)
+ATRACKER_PORTFOLIO_UPDATE_SERVICE_ID = _getint("atracker", "portfolio_update_service_id", 0)
+ATRACKER_REQUEST_ATTACH_SERVICE_ID = _getint("atracker", "request_attach_service_id", 0)
+
 # --- Telegram ---
 TELEGRAM_BOT_TOKEN = _get("telegram", "bot_token", "")
 

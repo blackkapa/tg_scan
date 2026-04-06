@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Накладная на перемещение</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: "Times New Roman", Times, serif; margin: 1.2cm; color: #111; font-size: 11pt; }
+        h1 { text-align: center; font-size: 14pt; margin: 0 0 1rem; font-weight: bold; }
+        table.assets { width: 100%; border-collapse: collapse; font-size: 10pt; }
+        table.assets th, table.assets td { border: 1px solid #333; padding: 0.35rem 0.3rem; text-align: left; }
+        table.assets th { background: #eee; }
+        .sign { margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; font-size: 10pt; }
+        .sign-block p { margin: 0 0 0.5rem; }
+        .sign-line { border-bottom: 1px solid #333; min-height: 1.4em; margin-top: 0.25rem; }
+        .back { margin-bottom: 1rem; font-family: system-ui, sans-serif; font-size: 0.85rem; }
+        .act-sheet { margin-bottom: 2rem; }
+        .act-sheet--break { page-break-before: always; }
+        .act-print-header { font-size: 9pt; text-align: left; color: #222; margin-bottom: 0.5rem; }
+        @media print {
+            .back { display: none; }
+            body { margin: 0.8cm; padding-top: 0.85cm; }
+            .act-print-header {
+                position: fixed;
+                top: 0;
+                left: 0.8cm;
+                right: 0.8cm;
+                margin: 0;
+                padding: 0 0 0.2rem 0;
+                text-align: left;
+                font-size: 9pt;
+            }
+        }
+    </style>
+</head>
+<body>
+    {% if tr.organization_name %}
+    <div class="act-print-header">Организация: {{ tr.organization_name }}</div>
+    {% endif %}
+
+    <p class="back"><a href="/transfers/{{ tr.id }}">← К заявке</a></p>
+
+    {% for group in act_groups %}
+    <section class="act-sheet{% if not loop.first %} act-sheet--break{% endif %}">
+        <h1>Накладная на перемещение № {{ operation_display }} от {{ act_date }}</h1>
+
+        <p style="margin: 0.75rem 0;">
+            <strong>Отправитель:</strong> {{ tr.from_fio or "—" }}
+            {% if group.location_label %}
+                ({{ group.location_label }})
+            {% else %}
+                {% set from_note = tr.from_city or tr.from_email or "" %}
+                {% if from_note %}({{ from_note }}){% endif %}
+            {% endif %}
+        </p>
+        <p style="margin: 0.75rem 0;">
+            <strong>Получатель:</strong> {{ tr.to_fio or "—" }}
+            {% set to_note = tr.to_city or tr.to_email or "" %}
+            {% if to_note %}({{ to_note }}){% endif %}
+        </p>
+
+        <table class="assets" style="margin-top: 1rem;">
+            <thead>
+                <tr>
+                    <th>№</th>
+                    <th>Наименование</th>
+                    <th>Тип</th>
+                    <th>Инвентарный №</th>
+                    <th>Серийный №</th>
+                    <th>Кол-во</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in group.assets %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ a.name }}</td>
+                    <td>{{ a.category or "—" }}</td>
+                    <td>{{ a.invent or "—" }}</td>
+                    <td>{{ a.serial or "—" }}</td>
+                    <td>{{ a.qty | default(1) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <p style="margin-top: 1.25rem; font-size: 10pt; text-align: justify;">
+            В случае невозврата вверенного имущества работник дает согласие на удержание рыночной стоимости данного имущества из суммы,
+            причитающейся работнику, в соответствии со статьей 140 Трудового кодекса РФ
+        </p>
+
+        <div class="sign">
+            <div class="sign-block">
+                <p><strong>Отпустил</strong> _____________________</p>
+                <div class="sign-line"></div>
+                <p style="margin-top: 0.35rem;">{{ tr.from_fio or "" }}</p>
+            </div>
+            <div class="sign-block">
+                <p><strong>Получил</strong> _____________________</p>
+                <div class="sign-line"></div>
+                <p style="margin-top: 0.35rem;">{{ tr.to_fio or "" }}</p>
+            </div>
+        </div>
+    </section>
+    {% endfor %}
+</body>
+</html>

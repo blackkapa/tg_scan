@@ -70,6 +70,27 @@ def find_employee_by_input(
     return (None, None, "Сотрудник не найден. Проверьте ФИО или логин и попробуйте снова.")
 
 
+def employee_id_by_email(employees: List[Dict[str, Any]], email: str) -> Optional[int]:
+    """ID сотрудника itamEmplDept по корпоративной почте (для перемещения в A-Tracker)."""
+    if not email:
+        return None
+    want = email.strip().lower()
+    for emp in employees:
+        if not isinstance(emp, dict):
+            continue
+        em = (emp.get("sEmail") or emp.get("semail") or "").strip().lower()
+        if em != want:
+            continue
+        eid = emp.get("ID")
+        if eid is None:
+            continue
+        try:
+            return int(eid)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def create_code(fio: str, email: str) -> str:
     """Создаёт одноразовый код и запоминает его на ограниченное время."""
     code = "".join(random.choices(string.digits, k=CODE_LEN))

@@ -32,6 +32,33 @@
                         </label>
                     </div>
 
+                    <h2 class="settings-subtitle">Веб-сайт</h2>
+                    <div class="settings-field-group">
+                        <label>
+                            <span>Публичный URL (без завершающего /)</span>
+                            <input type="text" name="web_public_base_url" class="auth-form__input"
+                                   placeholder="https://inventory.example.com"
+                                   value="{{ config.web_public_base_url }}">
+                        </label>
+                        <p class="auth-form__hint" style="margin-top: 0;">Используется в ссылках в письмах о заявках на перемещение техники.</p>
+                        <label class="settings-checkbox-label" style="margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox"
+                                   name="web_transfer_enabled"
+                                   value="1"
+                                   style="margin-top: 0.2rem;"
+                                   {% if config.web_transfer_enabled %}checked{% endif %}>
+                            <span>Включить заявки на перемещение техники: чекбоксы и кнопка на «Мои активы», /transfer/start, карточки и списки transfer в «Заявках» и «Заявки (админ)». Пункты «Заявки» в шапке показываются, если включено это или «Добавить технику» ниже.</span>
+                        </label>
+                        <label class="settings-checkbox-label" style="margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox"
+                                   name="web_asset_add_button_enabled"
+                                   value="1"
+                                   style="margin-top: 0.2rem;"
+                                   {% if config.web_asset_add_button_enabled %}checked{% endif %}>
+                            <span>Включить блок «Добавить технику»: кнопка на «Мои активы», форма /asset-add/start, просмотр заявок /asset-add/…, список в разделе «Заявки» и в «Заявки (админ)». Если снять — всё это скрыто и недоступно по прямым ссылкам (редирект в список активов или админ-очередь).</span>
+                        </label>
+                    </div>
+
                     <h2 class="settings-subtitle">Email / домены</h2>
                     <div class="settings-field-group">
                         <label>
@@ -48,6 +75,30 @@
                                     placeholder="Напр.: admin1@asg.ru, admin2@asg.ru (или по одному в строке)"
                             >{{ config.email_admin_emails }}</textarea>
                         </label>
+                        <label>
+                            <span>Вход без кода из письма (bypass_code_emails)</span>
+                            <textarea
+                                    name="email_bypass_code_emails"
+                                    class="auth-form__input"
+                                    rows="3"
+                                    placeholder="Почты через запятую"
+                            >{{ config.email_bypass_code_emails }}</textarea>
+                        </label>
+                        <label>
+                            <span>Уведомление о скане акта (transfer_notification_to)</span>
+                            <input type="text" name="email_transfer_notification_to" class="auth-form__input"
+                                   placeholder="почта@asg.ru"
+                                   value="{{ config.email_transfer_notification_to }}">
+                        </label>
+                        <label>
+                            <span>Подтверждение перемещения админом (transfer_admin_confirm_email)</span>
+                            <input type="text" name="email_transfer_admin_confirm_email" class="auth-form__input"
+                                   placeholder="почта@asg.ru"
+                                   value="{{ config.email_transfer_admin_confirm_email }}">
+                        </label>
+                        <p class="auth-form__hint" style="margin-top: 0;">
+                            Письмо со сканом акта: адрес из transfer_admin_confirm_email; если пусто — из transfer_notification_to.
+                        </p>
                     </div>
 
                     <h2 class="settings-subtitle">SMTP</h2>

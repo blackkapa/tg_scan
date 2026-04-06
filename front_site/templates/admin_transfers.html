@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Заявки (админ){% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title hero__title--center">Заявки (админ)</h1>
+        <p class="page-lead">Очередь заявок (перемещение и добавление техники — по включённым настройкам). У заявок на перемещение: статус <strong>«Ожидает утверждения администратором»</strong> — можно открыть карточку и выполнить подтверждение после проверки скана.</p>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        {% if asset_add_button_enabled %}
+        <h2 class="settings-subtitle" style="margin-top: 1rem;">Заявки на добавление техники</h2>
+        {% if not asset_add_requests %}
+            <div class="empty-state"><p>Нет заявок на добавление техники.</p></div>
+        {% else %}
+            <div class="assets-list">
+                {% for r in asset_add_requests %}
+                    <div class="assets-list__item">
+                        <div class="assets-list__main">
+                            <div class="assets-list__name">
+                                Заявка {{ r.request_number or r.id[:8] }} · {{ r.asset_name or "без названия" }}
+                                <span class="status-badge status-badge--asset-add-{{ r.status }}" style="margin-left: 0.35rem;">{{ r.status | asset_add_status_ru }}</span>
+                            </div>
+                            <div class="assets-list__meta">
+                                <span>Инициатор: {{ r.requester_fio }} ({{ r.requester_email }})</span><br>
+                                <span>Категория: {{ r.category_name or "—" }}</span><br>
+                                <span>Фото: {{ (r.photos or [])|length }}</span>
+                            </div>
+                        </div>
+                        <div class="assets-list__actions">
+                            <a class="assets-list__link-button" href="/asset-add/{{ r.id }}">Открыть</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% endif %}
+        {% if transfer_requests_enabled %}
+        <h2 class="settings-subtitle" style="margin-top: 1rem;">Заявки на перемещение техники</h2>
+        {% if not transfers %}
+            <div class="empty-state"><p>Нет заявок на перемещение техники.</p></div>
+        {% else %}
+            <div class="assets-list">
+                {% for t in transfers %}
+                    <div class="assets-list__item">
+                        <div class="assets-list__main">
+                            <div class="assets-list__name">
+                                {% if t.waybill_number %}Накладная {{ t.waybill_number }}{% else %}Заявка {{ t.id[:8] }}{% endif %}
+                                <span class="status-badge status-badge--{{ t.status }}" style="margin-left: 0.35rem;">{{ t.status | transfer_status_ru }}</span>
+                            </div>
+                            <div class="assets-list__meta">
+                                <span>{{ t.from_fio }} → {{ t.to_fio }}</span><br>
+                                <span>Активов: {{ (t.assets or [])|length }}</span><br>
+                                <span>Операция A-Tracker: {% if t.operation_number %}{{ t.operation_number | operation_transfer_label }}{% else %}—{% endif %}</span>
+                            </div>
+                        </div>
+                        <div class="assets-list__actions">
+                            <a class="assets-list__link-button" href="/transfers/{{ t.id }}">Открыть</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+

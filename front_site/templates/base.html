@@ -15,10 +15,17 @@
                 <span class="site-header__title">Инвентаризация техники</span>
             </div>
             {% if request.session.get("user_email") %}
-                <div class="site-header__actions">
-                    <a href="/assets" class="site-header__link">Мои активы</a>
+                {% set path = request.url.path %}
+                <nav class="site-header__actions" aria-label="Основное меню">
+                    <a href="/assets" class="site-header__link{% if path.startswith('/assets') %} site-header__link--active{% endif %}">Мои активы</a>
+                    {% if show_requests_in_nav %}
+                    <a href="/transfers" class="site-header__link{% if path.startswith('/transfers') or path.startswith('/transfer/') %} site-header__link--active{% endif %}">Заявки</a>
+                    {% if request.session.get("is_admin") %}
+                        <a href="/admin/transfers" class="site-header__link{% if path.startswith('/admin/transfers') %} site-header__link--active{% endif %}">Заявки (админ)</a>
+                    {% endif %}
+                    {% endif %}
                     <a href="/logout" class="site-header__link">Выйти</a>
-                </div>
+                </nav>
             {% endif %}
         </div>
     </header>

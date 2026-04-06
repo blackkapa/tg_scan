@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}Оформление перемещения техники{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title hero__title--center">Оформление перемещения техники</h1>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        <p class="page-lead">Проверьте состав — ниже список техники, подлежащей перемещению. Затем выберите получателя из A-Tracker, организацию и местоположение получателя.</p>
+        <div class="assets-list">
+            {% for a in assets %}
+                <div class="assets-list__item">
+                    <div class="assets-list__main">
+                        <div class="assets-list__name">{{ a.name }}</div>
+                        <div class="assets-list__meta">
+                            <span>Категория: {{ a.category or "—" }}</span><br>
+                            <span>Инвентарный номер: {{ a.invent or "-" }}</span><br>
+                            <span>Серийный номер: {{ a.serial or "-" }}</span>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <form method="post" action="/transfer/start" class="auth-form transfer-start-form transfer-start-form--wide" style="margin-top: 1rem;" id="transfer-start-form">
+            <input type="hidden" name="asset_ids" value="{{ asset_ids_value }}" id="transfer-asset-ids">
+
+            <label class="auth-form__label">
+                <span>Получатель</span>
+                <div class="autocomplete" id="recipient-ac">
+                    <input class="auth-form__input auth-form__input--recipient" id="recipient-search" type="search" name="recipient_input" autocomplete="off" placeholder="Начните вводить ФИО, логин или почту…" required>
+                    <input type="hidden" name="recipient_email" id="recipient-email" value="">
+                    <ul class="autocomplete__list" id="recipient-suggestions" hidden role="listbox"></ul>
+                </div>
+                <span class="auth-form__hint">Выберите сотрудника из списка A-Tracker.</span>
+            </label>
+
+            <label class="auth-form__label">
+                <span>Организация</span>
+                <select class="auth-form__input" name="organization" required>
+                    <option value="">Выберите организацию</option>
+                    <option value="1">ООО АСГ</option>
+                    <option value="2">ООО РКЗ</option>
+                    <option value="3">ООО ОВП</option>
+                </select>
+            </label>
+
+            <label class="auth-form__label">
+                <span>Местоположение получателя</span>
+                <div class="autocomplete" id="location-ac">
+                    <input class="auth-form__input auth-form__input--recipient" id="location-search" type="search" name="receiver_location_name" autocomplete="off" placeholder="Поиск по наименованию из A-Tracker…" required>
+                    <input type="hidden" name="receiver_location_id" id="receiver-location-id" value="">
+                    <ul class="autocomplete__list" id="location-suggestions" hidden role="listbox"></ul>
+                </div>
+                <span class="auth-form__hint">
+                    {% if locations_directory_enabled %}
+                    Поиск по полному справочнику местоположений A-Tracker (вложенные узлы показываются как «родитель / дочерний»).
+                    {% else %}
+                    В <code>config.ini</code> не задан <code>locations_list_service_id</code> — доступны только локации, которые уже указаны на ваших активах (полный список вроде «Сити» и иерархия из раздела «Местоположения» не подгружаются). Укажите ID GET-сервиса, возвращающего тот же список, что в справочнике.
+                    {% endif %}
+                </span>
+            </label>
+
+            <button type="submit" class="auth-form__button">Создать заявку</button>
+        </form>
+    </div>
+</section>
+<script>
+(function () {
+    var debounce = function (fn, ms) {
+        var t;
+        return function () {
+            var a = arguments, self = this;
+            clearTimeout(t);
+            t = setTimeout(function () { fn.apply(self, a); }, ms);
+        };
+    };
+
+    function wireEmployeeAutocomplete() {
+        var inp = document.getElementById("recipient-search");
+        var hid = document.getElementById("recipient-email");
+        var list = document.getElementById("recipient-suggestions");
+        if (!inp || !hid || !list) return;
+
+        var hide = function () { list.hidden = true; list.innerHTML = ""; };
+        var showLoading = function () {
+            list.innerHTML = "<li class=\"autocomplete__item autocomplete__item--muted\">Загрузка…</li>";
+            list.hidden = false;
+        };
+
+        var fetchItems = debounce(function () {
+            var q = (inp.value || "").trim();
+            showLoading();
+            fetch("/api/transfer/employees?q=" + encodeURIComponent(q), { credentials: "same-origin" })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var items = (data && data.items) ? data.items : [];
+                    list.innerHTML = "";
+                    if (!items.length) {
+                        list.innerHTML = "<li class=\"autocomplete__item autocomplete__item--muted\">Никого не найдено</li>";
+                        list.hidden = false;
+                        return;
+                    }
+                    items.forEach(function (it) {
+                        var li = document.createElement("li");
+                        li.className = "autocomplete__item";
+                        li.setAttribute("role", "option");
+                        li.textContent = it.label || (it.fio + " · " + it.email);
+                        li.addEventListener("mousedown", function (e) {
+                            e.preventDefault();
+                            inp.value = it.label || (it.fio + " · " + it.email);
+                            hid.value = it.email || "";
+                            hide();
+                        });
+                        list.appendChild(li);
+                    });
+                    list.hidden = false;
+                })
+                .catch(function () {
+                    list.innerHTML = "<li class=\"autocomplete__item autocomplete__item--muted\">Ошибка загрузки</li>";
+                    list.hidden = false;
+                });
+        }, 250);
+
+        inp.addEventListener("input", function () {
+            hid.value = "";
+            fetchItems();
+        });
+        inp.addEventListener("focus", function () {
+            fetchItems();
+        });
+        document.addEventListener("click", function (e) {
+            if (!document.getElementById("recipient-ac").contains(e.target)) hide();
+        });
+    }
+
+    function wireLocationAutocomplete() {
+        var inp = document.getElementById("location-search");
+        var hid = document.getElementById("receiver-location-id");
+        var list = document.getElementById("location-suggestions");
+        var assetIds = document.getElementById("transfer-asset-ids");
+        if (!inp || !hid || !list) return;
+
+        var hide = function () { list.hidden = true; list.innerHTML = ""; };
+        var showLoading = function () {
+            list.innerHTML = "<li class=\"autocomplete__item autocomplete__item--muted\">Загрузка…</li>";
+            list.hidden = false;
+        };
+
+        var fetchItems = debounce(function () {
+            var q = (inp.value || "").trim();
+            showLoading();
+            var aid = assetIds ? assetIds.value : "";
+            var url = "/api/transfer/locations?q=" + encodeURIComponent(q) + "&asset_ids=" + encodeURIComponent(aid);
+            fetch(url, { credentials: "same-origin" })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    var items = (data && data.items) ? data.items : [];
+                    list.innerHTML = "";
+                    if (!items.length) {
+                        list.innerHTML = "<li class=\"autocomplete__item autocomplete__item--muted\">Ничего не найдено — уточните запрос</li>";
+                        list.hidden = false;
+                        return;
+                    }
+                    items.forEach(function (it) {
+                        var li = document.createElement("li");
+                        li.className = "autocomplete__item";
+                        li.setAttribute("role", "option");
+                        li.textContent = it.name;
+                        li.addEventListener("mousedown", function (e) {
+                            e.preventDefault();
+                            inp.value = it.name;
+                            hid.value = (it.id !== null && it.id !== undefined) ? String(it.id) : "";
+                            hide();
+                        });
+                        list.appendChild(li);
+                    });
+                    list.hidden = false;
+                })
+                .catch(function () {
+                    list.innerHTML = "<li class=\"autocomplete__item autocomplete__item--muted\">Ошибка загрузки</li>";
+                    list.hidden = false;
+                });
+        }, 250);
+
+        inp.addEventListener("input", function () {
+            hid.value = "";
+            fetchItems();
+        });
+        inp.addEventListener("focus", function () {
+            fetchItems();
+        });
+        document.addEventListener("click", function (e) {
+            if (!document.getElementById("location-ac").contains(e.target)) hide();
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+        wireEmployeeAutocomplete();
+        wireLocationAutocomplete();
+    });
+})();
+</script>
+{% endblock %}

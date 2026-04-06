@@ -1,3 +1,5 @@
+.DS_Store
+
 # Секреты (токен, пароли)
 config.ini
 
@@ -16,3 +18,7 @@ venv/
 
 # Логи
 *.log
+
+# front_site: заявки на передачу и загруженные сканы
+front_site/data/transfers.json
+front_site/uploads/
