@@ -1573,12 +1573,22 @@ def _systemctl_bin() -> str:
     return found or "/usr/bin/systemctl"
 
 
+def _sudo_bin() -> str:
+    """Полный путь к sudo: в unit часто PATH только из venv — «sudo» из PATH не находится."""
+    for candidate in ("/usr/bin/sudo", "/bin/sudo"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    found = shutil.which("sudo")
+    return found or "/usr/bin/sudo"
+
+
 def _restart_front_site_service() -> bool:
     """
     Пробуем перезапустить systemd-сервис front_site.service.
     На проде процесс обычно идёт от www-data: нужен sudoers NOPASSWD для
     «sudo -n systemctl restart front_site.service», иначе fallback на
     прямой systemctl (dev / запуск от root).
+    В unit не полагаться на PATH: вызываем /usr/bin/sudo и полный путь к systemctl.
     Возвращаем True при успехе, False при явной ошибке.
     """
     if not sys.platform.startswith("linux"):
@@ -1588,7 +1598,7 @@ def _restart_front_site_service() -> bool:
     try:
         # 1) sudo без пароля (sudoers: www-data NOPASSWD: /usr/bin/systemctl restart front_site.service)
         r1 = subprocess.run(
-            ["sudo", "-n", *cmd_restart],
+            [_sudo_bin(), "-n", *cmd_restart],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
