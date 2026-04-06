@@ -29,18 +29,15 @@
             <input type="hidden" name="asset_ids" value="{{ asset_ids_value }}" id="transfer-asset-ids">
 
             <label class="auth-form__label">
-                <span>Получатель</span>
                 <div class="autocomplete" id="recipient-ac">
-                    <input class="auth-form__input auth-form__input--recipient" id="recipient-search" type="search" name="recipient_input" autocomplete="off" placeholder="Начните вводить ФИО, логин или почту…" required>
+                    <input class="auth-form__input auth-form__input--recipient" id="recipient-search" type="search" name="recipient_input" autocomplete="off" placeholder="Начните вводить ФИО, логин или почту…" required aria-label="Получатель">
                     <input type="hidden" name="recipient_email" id="recipient-email" value="">
                     <ul class="autocomplete__list" id="recipient-suggestions" hidden role="listbox"></ul>
                 </div>
-                <span class="auth-form__hint">Выберите сотрудника из списка A-Tracker.</span>
             </label>
 
             <label class="auth-form__label">
-                <span>Организация</span>
-                <select class="auth-form__input" name="organization" required>
+                <select class="auth-form__input" name="organization" required aria-label="Организация">
                     <option value="">Выберите организацию</option>
                     <option value="1">ООО АСГ</option>
                     <option value="2">ООО РКЗ</option>
@@ -49,19 +46,11 @@
             </label>
 
             <label class="auth-form__label">
-                <span>Местоположение получателя</span>
                 <div class="autocomplete" id="location-ac">
-                    <input class="auth-form__input auth-form__input--recipient" id="location-search" type="search" name="receiver_location_name" autocomplete="off" placeholder="Поиск по наименованию из A-Tracker…" required>
+                    <input class="auth-form__input auth-form__input--recipient" id="location-search" type="search" name="receiver_location_name" autocomplete="off" placeholder="Поиск по наименованию из A-Tracker…" required aria-label="Местоположение получателя">
                     <input type="hidden" name="receiver_location_id" id="receiver-location-id" value="">
                     <ul class="autocomplete__list" id="location-suggestions" hidden role="listbox"></ul>
                 </div>
-                <span class="auth-form__hint">
-                    {% if locations_directory_enabled %}
-                    Справочник A-Tracker: в списке — часть названия после первого «/» (без верхнего уровня), сортировка по алфавиту.
-                    {% else %}
-                    В <code>config.ini</code> не задан <code>locations_list_service_id</code> — доступны только локации, которые уже указаны на ваших активах (полный список вроде «Сити» и иерархия из раздела «Местоположения» не подгружаются). Укажите ID GET-сервиса, возвращающего тот же список, что в справочнике.
-                    {% endif %}
-                </span>
             </label>
 
             <button type="submit" class="auth-form__button">Создать заявку</button>

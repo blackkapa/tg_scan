@@ -3195,7 +3195,6 @@ async def transfer_start_page(request: Request, asset_ids: str = ""):
         "title": "Оформление перемещения техники",
         "assets": selected_assets,
         "asset_ids_value": ",".join(str(x["id"]) for x in selected_assets),
-        "locations_directory_enabled": ATRACKER_LOCATIONS_LIST_SERVICE_ID > 0,
         "message": request.session.pop("flash_message", None),
     }
     return render_template("transfer_start.html", context)
