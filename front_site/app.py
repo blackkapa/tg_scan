@@ -18,6 +18,7 @@ import base64
 from PIL import Image, ImageDraw, ImageFont
 import os
 import sys
+import errno
 import subprocess
 import hashlib
 from configparser import ConfigParser
@@ -1565,20 +1566,36 @@ def _save_settings_config(
 def _restart_front_site_service() -> bool:
     """
     Пробуем перезапустить systemd-сервис front_site.service.
-    Возвращаем True при успехе/отсутствии systemd, False при явной ошибке.
+    На проде процесс обычно идёт от www-data: нужен sudoers NOPASSWD для
+    «sudo -n systemctl restart front_site.service», иначе fallback на
+    прямой systemctl (dev / запуск от root).
+    Возвращаем True при успехе, False при явной ошибке.
     """
-    # Только на Linux есть смысл пробовать systemctl.
     if not sys.platform.startswith("linux"):
         return True
+    cmd_restart = ["restart", "front_site.service"]
     try:
-        result = subprocess.run(
-            ["systemctl", "restart", "front_site.service"],
+        # 1) sudo без пароля (см. visudo: www-data NOPASSWD для systemctl restart)
+        r1 = subprocess.run(
+            ["sudo", "-n", "systemctl", *cmd_restart],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        return result.returncode == 0
+        if r1.returncode == 0:
+            return True
+        # 2) без sudo — сработает при запуске от root или политике systemd
+        r2 = subprocess.run(
+            ["systemctl", *cmd_restart],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return r2.returncode == 0
+    except FileNotFoundError:
+        return False
     except Exception:
         return False
 
@@ -1852,6 +1869,22 @@ async def settings_save(
             request,
             action="settings_save",
             details=f"restarted={restarted}",
+        )
+    except OSError as exc:
+        if exc.errno in (errno.EACCES, errno.EPERM):
+            request.session["flash_message"] = (
+                f"Нет прав на запись в файл конфигурации ({CONFIG_PATH}). "
+                "На сервере от root: "
+                f"chown www-data:www-data {CONFIG_PATH}"
+            )
+        else:
+            request.session["flash_message"] = (
+                f"Не удалось сохранить настройки: {exc}"
+            )
+        _write_audit(
+            request,
+            action="settings_save_error",
+            details=str(exc),
         )
     except Exception as exc:
         request.session["flash_message"] = (
