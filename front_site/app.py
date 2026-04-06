@@ -1038,6 +1038,29 @@ def _decode_data_url_png(data: str) -> tuple[bytes | None, str]:
     return raw, ""
 
 
+def _fc_match_ttf(pattern: str) -> Path | None:
+    """Путь к шрифту через fontconfig (Linux), если доступен fc-match."""
+    import shutil
+
+    if not shutil.which("fc-match"):
+        return None
+    try:
+        proc = subprocess.run(
+            ["fc-match", "-f", "%{file}", pattern],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        lines = (proc.stdout or "").strip().splitlines()
+        path = (lines[0] if lines else "").strip()
+        if path and Path(path).is_file():
+            return Path(path)
+    except Exception:
+        return None
+    return None
+
+
 def _reportlab_register_cyrillic_fonts() -> tuple[str | None, str | None]:
     """
     Регистрирует TTF с кириллицей для ReportLab.
@@ -1066,6 +1089,14 @@ def _reportlab_register_cyrillic_fonts() -> tuple[str | None, str | None]:
             Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
         ),
         (
+            Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
+        ),
+        (
+            Path("/usr/share/fonts/TTF/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"),
+        ),
+        (
             Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
             Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"),
         ),
@@ -1078,6 +1109,25 @@ def _reportlab_register_cyrillic_fonts() -> tuple[str | None, str | None]:
     ]
 
     try:
+        for fc_pat in (
+            "DejaVu Sans:style=Book",
+            "DejaVu Sans",
+            "Liberation Sans:style=Regular",
+            "Liberation Sans",
+            "Noto Sans:style=Regular",
+            "sans-serif",
+        ):
+            fc_path = _fc_match_ttf(fc_pat)
+            if fc_path is None:
+                continue
+            suf = fc_path.suffix.lower()
+            if suf not in (".ttf", ".otf"):
+                continue
+            pdfmetrics.registerFont(TTFont(norm, str(fc_path)))
+            pdfmetrics.registerFont(TTFont(bold, str(fc_path)))
+            logger.info("ReportLab PDF: шрифт через fc-match %s (%s)", fc_path, fc_pat)
+            return norm, bold
+
         for sp in singles:
             if sp.is_file():
                 pdfmetrics.registerFont(TTFont(norm, str(sp)))
@@ -1115,42 +1165,39 @@ def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     pdf_norm, pdf_bold = _reportlab_register_cyrillic_fonts()
+    if not pdf_norm:
+        raise RuntimeError(
+            "Для PDF акта не найден шрифт с кириллицей. На сервере установите пакет шрифтов "
+            "(например fonts-dejavu-core / fonts-liberation) или положите DejaVuSans.ttf в front_site/fonts/."
+        )
     base = getSampleStyleSheet()
     _sn = f"x{id(dest)}"
-    if pdf_norm:
-        sty_title = ParagraphStyle(
-            "pdf_title" + _sn,
-            parent=base["Title"],
-            fontName=pdf_norm,
-            fontSize=16,
-            leading=20,
-            spaceAfter=8,
-        )
-        sty_normal = ParagraphStyle(
-            "pdf_normal" + _sn,
-            parent=base["Normal"],
-            fontName=pdf_norm,
-            fontSize=10,
-            leading=13,
-        )
-        sty_h2 = ParagraphStyle(
-            "pdf_h2" + _sn,
-            parent=base["Heading2"],
-            fontName=pdf_norm,
-            fontSize=12,
-            leading=15,
-            spaceAfter=6,
-        )
+    sty_title = ParagraphStyle(
+        "pdf_title" + _sn,
+        parent=base["Title"],
+        fontName=pdf_norm,
+        fontSize=16,
+        leading=20,
+        spaceAfter=8,
+    )
+    sty_normal = ParagraphStyle(
+        "pdf_normal" + _sn,
+        parent=base["Normal"],
+        fontName=pdf_norm,
+        fontSize=10,
+        leading=13,
+    )
+    sty_h2 = ParagraphStyle(
+        "pdf_h2" + _sn,
+        parent=base["Heading2"],
+        fontName=pdf_norm,
+        fontSize=12,
+        leading=15,
+        spaceAfter=6,
+    )
 
-        def _lbl(s: str) -> str:
-            return f'<font name="{pdf_bold}">{escape(s)}</font>'
-    else:
-        sty_title = base["Title"]
-        sty_normal = base["Normal"]
-        sty_h2 = base["Heading2"]
-
-        def _lbl(s: str) -> str:
-            return f"<b>{escape(s)}</b>"
+    def _lbl(s: str) -> str:
+        return f'<font name="{pdf_bold}">{escape(s)}</font>'
 
     def _px(*parts: str) -> str:
         return "".join(escape(p) for p in parts)
@@ -1213,9 +1260,8 @@ def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest
         ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("FONTNAME", (0, 0), (-1, -1), pdf_norm),
     ]
-    if pdf_norm:
-        tbl_cmds.append(("FONTNAME", (0, 0), (-1, -1), pdf_norm))
     t.setStyle(TableStyle(tbl_cmds))
     story.append(t)
     story.append(Spacer(1, 0.8 * cm))
@@ -4083,7 +4129,12 @@ async def transfer_sign_receiver(request: Request, transfer_id: str, signature_p
         _build_transfer_act_pdf(tr, sender_path, receiver_path, act_pdf)
     except Exception as ex:
         logger.exception("transfer act pdf: %s", ex)
-        request.session["flash_message"] = "Не удалось сформировать PDF акта. Попробуйте ещё раз или сообщите администратору."
+        if isinstance(ex, RuntimeError) and str(ex).strip():
+            request.session["flash_message"] = str(ex)
+        else:
+            request.session["flash_message"] = (
+                "Не удалось сформировать PDF акта. Попробуйте ещё раз или сообщите администратору."
+            )
         return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
     wb = (tr.get("waybill_number") or "").strip() or transfer_id[:8]
     orig_name = f"Накладная_{wb}_акт.pdf"
