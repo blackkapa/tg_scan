@@ -639,6 +639,18 @@ html, body {
     border: 1px solid #fcd34d;
 }
 
+.status-badge--pending_sender_sign {
+    background: #fff7ed;
+    color: #9a3412;
+    border: 1px solid #fdba74;
+}
+
+.status-badge--pending_receiver_sign {
+    background: #ecfeff;
+    color: #0e7490;
+    border: 1px solid #67e8f9;
+}
+
 .status-badge--pending_scan {
     background: #dbeafe;
     color: #1e40af;
@@ -842,5 +854,33 @@ html, body {
     .transfer-steps__sep {
         display: none;
     }
+}
+
+.signature-pad-block {
+    border: 1px solid var(--border-subtle, #e5e7eb);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    background: var(--card-inner, #fafafa);
+}
+
+.signature-pad {
+    margin-top: 0.5rem;
+    border: 1px dashed #94a3b8;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+    max-width: 100%;
+}
+
+.signature-pad__canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    touch-action: none;
+    cursor: crosshair;
+}
+
+.signature-pad__actions {
+    margin-top: 0.5rem;
 }
 

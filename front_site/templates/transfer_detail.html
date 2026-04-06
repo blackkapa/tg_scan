@@ -18,24 +18,49 @@
         </p>
 
         {% if tr.status != "cancelled" %}
-        <div class="transfer-steps" aria-label="Этапы перемещения техники">
-            {% set st = tr.status %}
-            <span class="transfer-steps__item {% if st == 'pending_receiver' %}transfer-steps__item--current{% elif st in ['pending_scan', 'ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
-                <span class="transfer-steps__num">1</span> Получатель
-            </span>
-            <span class="transfer-steps__sep">→</span>
-            <span class="transfer-steps__item {% if st == 'pending_scan' %}transfer-steps__item--current{% elif st in ['ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
-                <span class="transfer-steps__num">2</span> Подпись акта
-            </span>
-            <span class="transfer-steps__sep">→</span>
-            <span class="transfer-steps__item {% if st == 'ready_for_admin' %}transfer-steps__item--current{% elif st == 'completed' %}transfer-steps__item--done{% endif %}">
-                <span class="transfer-steps__num">3</span> Проверка администратором
-            </span>
-            <span class="transfer-steps__sep">→</span>
-            <span class="transfer-steps__item {% if st == 'completed' %}transfer-steps__item--current transfer-steps__item--done{% endif %}">
-                <span class="transfer-steps__num">4</span> Готово
-            </span>
-        </div>
+            {% if use_drawn %}
+            <div class="transfer-steps" aria-label="Этапы перемещения техники">
+                {% set st = tr.status %}
+                <span class="transfer-steps__item {% if st == 'pending_sender_sign' %}transfer-steps__item--current{% elif st not in ['pending_sender_sign'] %}transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">1</span> Подпись отправителя
+                </span>
+                <span class="transfer-steps__sep">→</span>
+                <span class="transfer-steps__item {% if st == 'pending_receiver' %}transfer-steps__item--current{% elif st in ['pending_receiver_sign', 'ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">2</span> Решение получателя
+                </span>
+                <span class="transfer-steps__sep">→</span>
+                <span class="transfer-steps__item {% if st == 'pending_receiver_sign' %}transfer-steps__item--current{% elif st in ['ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">3</span> Подпись получателя
+                </span>
+                <span class="transfer-steps__sep">→</span>
+                <span class="transfer-steps__item {% if st == 'ready_for_admin' %}transfer-steps__item--current{% elif st == 'completed' %}transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">4</span> Проверка администратором
+                </span>
+                <span class="transfer-steps__sep">→</span>
+                <span class="transfer-steps__item {% if st == 'completed' %}transfer-steps__item--current transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">5</span> Готово
+                </span>
+            </div>
+            {% else %}
+            <div class="transfer-steps" aria-label="Этапы перемещения техники">
+                {% set st = tr.status %}
+                <span class="transfer-steps__item {% if st == 'pending_receiver' %}transfer-steps__item--current{% elif st in ['pending_scan', 'ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">1</span> Получатель
+                </span>
+                <span class="transfer-steps__sep">→</span>
+                <span class="transfer-steps__item {% if st == 'pending_scan' %}transfer-steps__item--current{% elif st in ['ready_for_admin', 'completed'] %}transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">2</span> Подпись акта
+                </span>
+                <span class="transfer-steps__sep">→</span>
+                <span class="transfer-steps__item {% if st == 'ready_for_admin' %}transfer-steps__item--current{% elif st == 'completed' %}transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">3</span> Проверка администратором
+                </span>
+                <span class="transfer-steps__sep">→</span>
+                <span class="transfer-steps__item {% if st == 'completed' %}transfer-steps__item--current transfer-steps__item--done{% endif %}">
+                    <span class="transfer-steps__num">4</span> Готово
+                </span>
+            </div>
+            {% endif %}
         {% endif %}
 
         {% if message %}
@@ -43,15 +68,31 @@
         {% endif %}
 
         {# Подсказка: что сделать сейчас #}
-        {% if tr.status == "pending_receiver" and is_recipient %}
+        {% if use_drawn and tr.status == "pending_sender_sign" and is_sender %}
             <div class="info-callout" role="status">
-                <strong>Ваш шаг:</strong> подтвердите, что согласны получить технику, или отклоните заявку — отправитель получит письмо.
+                <strong>Ваш шаг:</strong> нарисуйте подпись в поле ниже и сохраните. Пока подписи нет, получатель не видит эту заявку.
+            </div>
+        {% elif use_drawn and tr.status == "pending_sender_sign" and not is_sender %}
+            <div class="info-callout">
+                Ожидается подпись отправителя.
+            </div>
+        {% elif tr.status == "pending_receiver" and is_recipient %}
+            <div class="info-callout" role="status">
+                <strong>Ваш шаг:</strong> подтвердите получение техники или отклоните заявку — отправитель получит письмо.
             </div>
         {% elif tr.status == "pending_receiver" and is_sender %}
             <div class="info-callout">
-                <strong>Ваш шаг:</strong> дождитесь решения получателя. Пока ждёте, можно распечатать накладную по ссылке ниже.
+                <strong>Ваш шаг:</strong> дождитесь решения получателя. Накладную можно распечатать по ссылке ниже.
             </div>
-        {% elif tr.status == "pending_scan" %}
+        {% elif use_drawn and tr.status == "pending_receiver_sign" and is_recipient %}
+            <div class="info-callout" role="status">
+                <strong>Ваш шаг:</strong> поставьте подпись получателя в поле ниже — из подписей будет собран PDF-акт для администратора.
+            </div>
+        {% elif use_drawn and tr.status == "pending_receiver_sign" and is_sender %}
+            <div class="info-callout">
+                <strong>Ваш шаг:</strong> дождитесь подписи получателя. После этого заявка уйдёт администратору.
+            </div>
+        {% elif tr.status == "pending_scan" and not use_drawn %}
             <div class="info-callout">
                 <strong>Ваш шаг:</strong> распечатайте накладную, подпишите акт, загрузите скан PDF или DOCX. После проверки заявка уйдёт администратору.
             </div>
@@ -115,7 +156,7 @@
         {% if tr.posting_last_error and tr.status != "completed" %}
             <p class="hero__text" style="margin-top: 0.5rem;"><span style="color: #b00020;">Ошибка A-Tracker: {{ tr.posting_last_error }}</span></p>
         {% endif %}
-        {% if tr.status not in ["completed", "ready_for_admin"] %}
+        {% if tr.status not in ["completed", "ready_for_admin"] or is_admin %}
         <p class="hero__text" style="margin-top: 0.75rem;">
             <a class="assets-list__link" href="/transfers/{{ tr.id }}/act" target="_blank" rel="noopener">Открыть накладную для печати</a>
             <span class="hero__text--muted" style="font-size: 0.82rem;"> (откроется в новой вкладке)</span>
@@ -151,6 +192,23 @@
             {% endfor %}
         </div>
 
+        {% if use_drawn and tr.status == "pending_sender_sign" and is_sender %}
+        <div class="signature-pad-block auth-form" style="margin-top: 1.25rem;">
+            <p class="auth-form__label"><strong>Подпись отправителя</strong></p>
+            <p class="hero__text hero__text--muted" style="margin-top: 0; font-size: 0.88rem;">Нарисуйте подпись пальцем или мышью в рамке.</p>
+            <div class="signature-pad">
+                <canvas class="signature-pad__canvas" id="transfer-sig-canvas-sender" width="520" height="160" aria-label="Поле подписи отправителя"></canvas>
+            </div>
+            <div class="signature-pad__actions">
+                <button type="button" class="assets-list__link-button" id="transfer-sig-clear-sender">Очистить</button>
+            </div>
+            <form method="post" action="/transfers/{{ tr.id }}/sign-sender" id="form-sender-sign" style="margin-top: 0.75rem;">
+                <input type="hidden" name="signature_png" id="sender-signature-png" value="">
+                <button type="submit" class="auth-form__button">Сохранить подпись отправителя</button>
+            </form>
+        </div>
+        {% endif %}
+
         {% if is_recipient and tr.status == "pending_receiver" %}
             <div class="auth-form" style="display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 1rem;">
                 <form method="post" action="/transfers/{{ tr.id }}/confirm" style="display: inline;">
@@ -162,7 +220,23 @@
             </div>
         {% endif %}
 
-        {% if tr.status == "pending_scan" %}
+        {% if use_drawn and tr.status == "pending_receiver_sign" and is_recipient %}
+        <div class="signature-pad-block auth-form" style="margin-top: 1.25rem;">
+            <p class="auth-form__label"><strong>Подпись получателя</strong></p>
+            <div class="signature-pad">
+                <canvas class="signature-pad__canvas" id="transfer-sig-canvas-receiver" width="520" height="160" aria-label="Поле подписи получателя"></canvas>
+            </div>
+            <div class="signature-pad__actions">
+                <button type="button" class="assets-list__link-button" id="transfer-sig-clear-receiver">Очистить</button>
+            </div>
+            <form method="post" action="/transfers/{{ tr.id }}/sign-receiver" id="form-receiver-sign" style="margin-top: 0.75rem;">
+                <input type="hidden" name="signature_png" id="receiver-signature-png" value="">
+                <button type="submit" class="auth-form__button">Сохранить подпись и сформировать акт</button>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if tr.status == "pending_scan" and not use_drawn %}
             <form method="post" action="/transfers/{{ tr.id }}/upload-scan" enctype="multipart/form-data" class="auth-form" style="margin-top: 1rem;">
                 <label class="auth-form__label">
                     <span>Подписанный акт (PDF или DOCX)</span>
@@ -174,7 +248,7 @@
         {% endif %}
 
         {% if tr.status not in ["completed", "cancelled"] and not is_recipient %}
-            {% if is_admin or (is_sender and tr.status == "pending_receiver") %}
+            {% if is_admin or (is_sender and tr.status in ["pending_receiver", "pending_sender_sign"]) %}
             <form method="post" action="/transfers/{{ tr.id }}/cancel" class="auth-form" style="margin-top: 1rem;">
                 <button type="submit" class="assets-list__link-button assets-list__link-button--full">Отменить перемещение</button>
             </form>
@@ -191,4 +265,134 @@
         {% endif %}
     </div>
 </section>
+
+{% if use_drawn and tr.status == "pending_sender_sign" and is_sender %}
+<script>
+(function () {
+  var canvas = document.getElementById('transfer-sig-canvas-sender');
+  var hidden = document.getElementById('sender-signature-png');
+  var form = document.getElementById('form-sender-sign');
+  if (!canvas || !hidden || !form) return;
+  var ctx = canvas.getContext('2d');
+  var blankData = '';
+  function fillWhite() {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  function snapBlank() {
+    blankData = canvas.toDataURL('image/png');
+  }
+  fillWhite();
+  snapBlank();
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  var drawing = false;
+  function pos(e) {
+    var r = canvas.getBoundingClientRect();
+    var x = (e.clientX !== undefined ? e.clientX : e.touches[0].clientX) - r.left;
+    var y = (e.clientY !== undefined ? e.clientY : e.touches[0].clientY) - r.top;
+    var sx = canvas.width / r.width;
+    var sy = canvas.height / r.height;
+    return { x: x * sx, y: y * sy };
+  }
+  canvas.addEventListener('mousedown', function (e) { drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); });
+  canvas.addEventListener('mousemove', function (e) {
+    if (!drawing) return;
+    var p = pos(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  });
+  window.addEventListener('mouseup', function () { drawing = false; });
+  canvas.addEventListener('touchstart', function (e) { e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }, { passive: false });
+  canvas.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    if (!drawing) return;
+    var p = pos(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }, { passive: false });
+  window.addEventListener('touchend', function () { drawing = false; });
+  document.getElementById('transfer-sig-clear-sender').addEventListener('click', function () {
+    fillWhite();
+    snapBlank();
+    hidden.value = '';
+  });
+  form.addEventListener('submit', function (e) {
+    var data = canvas.toDataURL('image/png');
+    hidden.value = data;
+    if (data === blankData) {
+      e.preventDefault();
+      alert('Нарисуйте подпись в рамке.');
+    }
+  });
+})();
+</script>
+{% endif %}
+
+{% if use_drawn and tr.status == "pending_receiver_sign" and is_recipient %}
+<script>
+(function () {
+  var canvas = document.getElementById('transfer-sig-canvas-receiver');
+  var hidden = document.getElementById('receiver-signature-png');
+  var form = document.getElementById('form-receiver-sign');
+  if (!canvas || !hidden || !form) return;
+  var ctx = canvas.getContext('2d');
+  var blankData = '';
+  function fillWhite() {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  function snapBlank() {
+    blankData = canvas.toDataURL('image/png');
+  }
+  fillWhite();
+  snapBlank();
+  ctx.strokeStyle = '#111';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  var drawing = false;
+  function pos(e) {
+    var r = canvas.getBoundingClientRect();
+    var x = (e.clientX !== undefined ? e.clientX : e.touches[0].clientX) - r.left;
+    var y = (e.clientY !== undefined ? e.clientY : e.touches[0].clientY) - r.top;
+    var sx = canvas.width / r.width;
+    var sy = canvas.height / r.height;
+    return { x: x * sx, y: y * sy };
+  }
+  canvas.addEventListener('mousedown', function (e) { drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); });
+  canvas.addEventListener('mousemove', function (e) {
+    if (!drawing) return;
+    var p = pos(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  });
+  window.addEventListener('mouseup', function () { drawing = false; });
+  canvas.addEventListener('touchstart', function (e) { e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }, { passive: false });
+  canvas.addEventListener('touchmove', function (e) {
+    e.preventDefault();
+    if (!drawing) return;
+    var p = pos(e);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }, { passive: false });
+  window.addEventListener('touchend', function () { drawing = false; });
+  document.getElementById('transfer-sig-clear-receiver').addEventListener('click', function () {
+    fillWhite();
+    snapBlank();
+    hidden.value = '';
+  });
+  form.addEventListener('submit', function (e) {
+    var data = canvas.toDataURL('image/png');
+    hidden.value = data;
+    if (data === blankData) {
+      e.preventDefault();
+      alert('Нарисуйте подпись в рамке.');
+    }
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}

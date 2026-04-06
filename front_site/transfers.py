@@ -96,7 +96,14 @@ def get_transfer(transfer_id: str) -> Optional[Dict[str, Any]]:
 def create_transfer(payload: Dict[str, Any]) -> Dict[str, Any]:
     items = list_transfers()
     obj = dict(payload)
-    obj.setdefault("status", "pending_receiver")
+    use_drawn = bool(obj.get("use_drawn_signatures"))
+    if "status" not in obj:
+        obj["status"] = "pending_sender_sign" if use_drawn else "pending_receiver"
+    obj.setdefault("use_drawn_signatures", False)
+    obj.setdefault("sender_signature_path", "")
+    obj.setdefault("receiver_signature_path", "")
+    obj.setdefault("sender_signed_at", "")
+    obj.setdefault("receiver_signed_at", "")
     obj.setdefault("scan_file_path", "")
     obj.setdefault("scan_original_name", "")
     obj.setdefault("scan_verified", False)

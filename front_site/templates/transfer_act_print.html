@@ -13,6 +13,8 @@
         .sign { margin-top: 2rem; display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; font-size: 10pt; }
         .sign-block p { margin: 0 0 0.5rem; }
         .sign-line { border-bottom: 1px solid #333; min-height: 1.4em; margin-top: 0.25rem; }
+        .sign-img-wrap { margin-top: 0.35rem; min-height: 2.5rem; }
+        .sign-img { max-width: 100%; max-height: 72px; object-fit: contain; }
         .back { margin-bottom: 1rem; font-family: system-ui, sans-serif; font-size: 0.85rem; }
         .act-sheet { margin-bottom: 2rem; }
         .act-sheet--break { page-break-before: always; }
@@ -91,13 +93,21 @@
 
         <div class="sign">
             <div class="sign-block">
-                <p><strong>Отпустил</strong> _____________________</p>
+                <p><strong>Отпустил</strong> {% if not signature_sender_url %}_____________________{% endif %}</p>
+                {% if signature_sender_url %}
+                <div class="sign-img-wrap"><img src="{{ signature_sender_url }}" alt="Подпись отправителя" class="sign-img"></div>
+                {% else %}
                 <div class="sign-line"></div>
+                {% endif %}
                 <p style="margin-top: 0.35rem;">{{ tr.from_fio or "" }}</p>
             </div>
             <div class="sign-block">
-                <p><strong>Получил</strong> _____________________</p>
+                <p><strong>Получил</strong> {% if not signature_receiver_url %}_____________________{% endif %}</p>
+                {% if signature_receiver_url %}
+                <div class="sign-img-wrap"><img src="{{ signature_receiver_url }}" alt="Подпись получателя" class="sign-img"></div>
+                {% else %}
                 <div class="sign-line"></div>
+                {% endif %}
                 <p style="margin-top: 0.35rem;">{{ tr.to_fio or "" }}</p>
             </div>
         </div>

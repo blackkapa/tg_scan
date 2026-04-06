@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import hashlib
 from configparser import ConfigParser
+from xml.sax.saxutils import escape
 
 # Берём настройки и клиент A-Tracker из существующего кода, но здесь пока только инициализируем.
 from config import (
@@ -104,8 +105,10 @@ jinja_env = Environment(
 )
 
 TRANSFER_STATUS_RU: dict[str, str] = {
+    "pending_sender_sign": "Ожидает подписи отправителя",
     "pending_receiver": "Ожидает подтверждения получателя",
-    "pending_scan": "Ожидает подписанного акта",
+    "pending_receiver_sign": "Ожидает подписи получателя",
+    "pending_scan": "Ожидает подписанного акта (файл)",
     "ready_for_admin": "Ожидает утверждения администратором",
     "completed": "Завершена",
     "cancelled": "Отменена",
@@ -502,6 +505,16 @@ def _parent_id_from_location_directory_row(raw: dict) -> int | None:
         except (TypeError, ValueError):
             continue
     return None
+
+
+def _transfer_location_ui_label(full_name: str) -> str:
+    """Подпись в форме перемещения: убираем префикс до первого «/» (иерархия из A-Tracker)."""
+    s = (full_name or "").strip()
+    idx = s.find("/")
+    if idx < 0:
+        return s
+    tail = s[idx + 1 :].strip()
+    return tail if tail else s
 
 
 def _location_directory_items_flat(raw_list: list) -> list[dict]:
@@ -902,7 +915,7 @@ def _notify_transfer_scan_uploaded(transfer_id: str, tr: dict) -> None:
 
 
 def _notify_transfer_completed_both(transfer_id: str, tr: dict) -> None:
-    """(4) Письма отправителю и получателю: перемещение выполнено."""
+    """(4) Письма отправителю и получателю: перемещение выполнено; при наличии — вложение накладной (PDF/скан акта)."""
     wb = (tr.get("waybill_number") or "").strip()
     op = (tr.get("operation_number") or "").strip()
     subj = f"Заявка выполнена: №{wb}" if wb else "Заявка на перемещение выполнена"
@@ -919,7 +932,15 @@ def _notify_transfer_completed_both(transfer_id: str, tr: dict) -> None:
     addrs = list(dict.fromkeys(addrs))
     if not addrs:
         return
-    ok, err = send_plain_text_email(addrs, subj, body)
+    act_path = Path(tr.get("scan_file_path") or "")
+    uploads_root = TRANSFER_UPLOADS_DIR.resolve()
+    act_ok = act_path.is_file() and _path_is_under_dir(act_path, uploads_root)
+    if act_ok:
+        fn = (tr.get("scan_original_name") or "").strip() or act_path.name
+        body_with_att = body + "\n\nВо вложении — накладная (подписанный акт)."
+        ok, err = send_email_with_attachment(addrs, subj, body_with_att, act_path, fn)
+    else:
+        ok, err = send_plain_text_email(addrs, subj, body)
     if not ok:
         logger.warning("Письмо о завершении перемещения не отправлено: %s", err)
 
@@ -946,6 +967,295 @@ def _notify_sender_recipient_rejected(transfer_id: str, tr: dict) -> None:
     ok, err = send_plain_text_email([to_email], subj, body)
     if not ok:
         logger.warning("Письмо отправителю об отклонении не отправлено: %s", err)
+
+
+def _notify_sender_recipient_accepted(transfer_id: str, tr: dict) -> None:
+    """Получатель согласился принять технику — уведомляем отправителя (потом получатель ставит подпись на сайте)."""
+    to_email = (tr.get("from_email") or "").strip()
+    if not to_email:
+        return
+    wb = (tr.get("waybill_number") or "").strip()
+    subj = (
+        f"Получатель согласен принять технику: №{wb}"
+        if wb
+        else "Получатель согласен принять технику по заявке на перемещение"
+    )
+    link = _transfer_public_link(transfer_id)
+    body = (
+        f"Здравствуйте, {tr.get('from_fio') or 'коллега'}.\n\n"
+        f"Получатель {tr.get('to_fio') or '—'} ({tr.get('to_email') or ''}) подтвердил готовность принять оборудование "
+        f"по накладной {wb or '—'}.\n"
+        "После того как получатель поставит подпись в веб-интерфейсе, заявка уйдёт администратору на проверку.\n\n"
+        + _transfer_brief_text(tr)
+        + (f"\n\n{link}" if link else "")
+    )
+    ok, err = send_plain_text_email([to_email], subj, body)
+    if not ok:
+        logger.warning("Письмо отправителю о согласии получателя не отправлено: %s", err)
+
+
+def _transfer_use_drawn_signatures(tr: dict) -> bool:
+    return bool(tr.get("use_drawn_signatures"))
+
+
+def _recipient_may_see_transfer(tr: dict, email_low: str) -> bool:
+    if (tr.get("to_email") or "").lower() != email_low:
+        return True
+    if _transfer_use_drawn_signatures(tr) and tr.get("status") == "pending_sender_sign":
+        return False
+    return True
+
+
+def _path_is_under_dir(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _transfer_signature_image_urls(request: Request, transfer_id: str, tr: dict) -> dict[str, str | None]:
+    """Публичные URL PNG подписей для шаблонов (после проверки пути под uploads)."""
+    root = TRANSFER_UPLOADS_DIR.resolve()
+    out: dict[str, str | None] = {"sender": None, "receiver": None}
+    mapping = {
+        "sender": tr.get("sender_signature_path") or "",
+        "receiver": tr.get("receiver_signature_path") or "",
+    }
+    for role, path_str in mapping.items():
+        p = Path(path_str)
+        if not p.is_file() or not _path_is_under_dir(p, root):
+            continue
+        out[role] = str(request.url_for("transfer_signature_png", transfer_id=transfer_id, role=role))
+    return out
+
+
+def _decode_data_url_png(data: str) -> tuple[bytes | None, str]:
+    s = (data or "").strip()
+    prefix = "data:image/png;base64,"
+    if not s.startswith(prefix):
+        return None, "Подпись должна быть в формате PNG (data URL)."
+    import base64
+
+    try:
+        raw = base64.b64decode(s[len(prefix) :], validate=True)
+    except Exception:
+        return None, "Некорректные данные подписи."
+    if len(raw) < 120:
+        return None, "Подпись слишком короткая — нарисуйте подпись в поле ниже."
+    if len(raw) > 2_500_000:
+        return None, "Изображение подписи слишком большое."
+    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return None, "Ожидается корректный PNG."
+    return raw, ""
+
+
+def _reportlab_register_cyrillic_fonts() -> tuple[str | None, str | None]:
+    """
+    Регистрирует TTF с кириллицей для ReportLab.
+    Возвращает (имя_обычного_начертания, имя_жирного) для Paragraph и Table; (None, None) если нет TTF.
+    """
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    norm = "TGScanPDF-N"
+    bold = "TGScanPDF-B"
+    if norm in pdfmetrics.getRegisteredFontNames():
+        return norm, bold
+
+    win_fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+
+    singles: list[Path] = [
+        BASE_DIR / "fonts" / "DejaVuSans.ttf",
+        Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        Path("/Library/Fonts/Arial Unicode.ttf"),
+        win_fonts / "arial.ttf",
+        win_fonts / "Arial.ttf",
+    ]
+    pairs: list[tuple[Path, Path]] = [
+        (
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+            Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        ),
+        (
+            Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"),
+        ),
+        (
+            Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
+            Path("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+        ),
+        (Path("/Library/Fonts/Arial.ttf"), Path("/Library/Fonts/Arial Bold.ttf")),
+        (win_fonts / "arial.ttf", win_fonts / "arialbd.ttf"),
+    ]
+
+    try:
+        for sp in singles:
+            if sp.is_file():
+                pdfmetrics.registerFont(TTFont(norm, str(sp)))
+                pdfmetrics.registerFont(TTFont(bold, str(sp)))
+                logger.info("ReportLab PDF: шрифт с кириллицей %s", sp)
+                return norm, bold
+
+        for pr, pb in pairs:
+            if not pr.is_file():
+                continue
+            pdfmetrics.registerFont(TTFont(norm, str(pr)))
+            if pb.is_file():
+                pdfmetrics.registerFont(TTFont(bold, str(pb)))
+            else:
+                pdfmetrics.registerFont(TTFont(bold, str(pr)))
+            logger.info("ReportLab PDF: шрифты с кириллицей %s", pr)
+            return norm, bold
+    except Exception as ex:
+        logger.warning("ReportLab PDF: не удалось зарегистрировать TTF: %s", ex)
+
+    logger.warning(
+        "ReportLab PDF: TTF с кириллицей не найден (DejaVu/Arial). "
+        "Положите DejaVuSans.ttf в front_site/fonts/ или установите шрифты в системе."
+    )
+    return None, None
+
+
+def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest: Path) -> None:
+    """Собирает PDF накладной с таблицей активов и двумя подписями (PNG)."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Image as RLImage
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    pdf_norm, pdf_bold = _reportlab_register_cyrillic_fonts()
+    base = getSampleStyleSheet()
+    _sn = f"x{id(dest)}"
+    if pdf_norm:
+        sty_title = ParagraphStyle(
+            "pdf_title" + _sn,
+            parent=base["Title"],
+            fontName=pdf_norm,
+            fontSize=16,
+            leading=20,
+            spaceAfter=8,
+        )
+        sty_normal = ParagraphStyle(
+            "pdf_normal" + _sn,
+            parent=base["Normal"],
+            fontName=pdf_norm,
+            fontSize=10,
+            leading=13,
+        )
+        sty_h2 = ParagraphStyle(
+            "pdf_h2" + _sn,
+            parent=base["Heading2"],
+            fontName=pdf_norm,
+            fontSize=12,
+            leading=15,
+            spaceAfter=6,
+        )
+
+        def _lbl(s: str) -> str:
+            return f'<font name="{pdf_bold}">{escape(s)}</font>'
+    else:
+        sty_title = base["Title"]
+        sty_normal = base["Normal"]
+        sty_h2 = base["Heading2"]
+
+        def _lbl(s: str) -> str:
+            return f"<b>{escape(s)}</b>"
+
+    def _px(*parts: str) -> str:
+        return "".join(escape(p) for p in parts)
+
+    wb = (tr.get("waybill_number") or "").strip() or "—"
+    story: list = []
+    story.append(Paragraph(_px("Накладная на перемещение № ", wb), sty_title))
+    story.append(Spacer(1, 0.4 * cm))
+    ff = tr.get("from_fio") or "—"
+    fe = tr.get("from_email") or "—"
+    story.append(
+        Paragraph(
+            _lbl("Отправитель:") + " " + _px(ff, " (", fe, ")"),
+            sty_normal,
+        )
+    )
+    tf = tr.get("to_fio") or "—"
+    te = tr.get("to_email") or "—"
+    story.append(
+        Paragraph(
+            _lbl("Получатель:") + " " + _px(tf, " (", te, ")"),
+            sty_normal,
+        )
+    )
+    story.append(
+        Paragraph(
+            _lbl("Организация:")
+            + " "
+            + escape(str(tr.get("organization_name") or "—"))
+            + " · "
+            + _lbl("Куда:")
+            + " "
+            + escape(str(tr.get("receiver_location_name") or tr.get("to_city") or "—")),
+            sty_normal,
+        )
+    )
+    story.append(Spacer(1, 0.5 * cm))
+
+    assets = tr.get("assets") or []
+    tbl_data: list[list[str]] = [
+        ["№", "Наименование", "Инв. №", "Серийный №"],
+    ]
+    for idx, a in enumerate(assets, start=1):
+        if not isinstance(a, dict):
+            continue
+        tbl_data.append(
+            [
+                str(idx),
+                str(a.get("name") or "—"),
+                str(a.get("invent") or "—"),
+                str(a.get("serial") or "—"),
+            ]
+        )
+    if len(tbl_data) == 1:
+        tbl_data.append(["—", "—", "—", "—"])
+
+    t = Table(tbl_data, colWidths=[1 * cm, 7 * cm, 3 * cm, 3.5 * cm])
+    tbl_cmds: list = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]
+    if pdf_norm:
+        tbl_cmds.append(("FONTNAME", (0, 0), (-1, -1), pdf_norm))
+    t.setStyle(TableStyle(tbl_cmds))
+    story.append(t)
+    story.append(Spacer(1, 0.8 * cm))
+    story.append(
+        Paragraph(
+            _lbl("Подписи (нарисованы в веб-интерфейсе)"),
+            sty_h2,
+        )
+    )
+    story.append(Spacer(1, 0.3 * cm))
+
+    def _sig_flow(path: Path, caption: str) -> None:
+        from PIL import Image as PILImage
+
+        im = PILImage.open(path)
+        w, h = im.size
+        max_w, max_h = 6 * cm, 2.2 * cm
+        scale = min(max_w / w, max_h / h, 1.0)
+        rw, rh = w * scale, h * scale
+        story.append(Paragraph(_lbl(caption), sty_normal))
+        story.append(RLImage(str(path), width=rw, height=rh))
+        story.append(Spacer(1, 0.4 * cm))
+
+    _sig_flow(sender_sig, "Отпустил (отправитель)")
+    _sig_flow(receiver_sig, "Получил (получатель)")
+
+    doc = SimpleDocTemplate(str(dest), pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.2 * cm)
+    doc.build(story)
 
 
 def _safe_upload_name(name: str) -> str:
@@ -1408,10 +1718,15 @@ def _build_mixed_transfer_rows(
     rows: list[dict] = []
     if include_transfers:
         for tr in reversed(list_transfers()):
-            if (tr.get("from_email") or "").lower() == email_low or (tr.get("to_email") or "").lower() == email_low:
-                row = dict(tr)
-                row["kind"] = "transfer"
-                rows.append(row)
+            is_from = (tr.get("from_email") or "").lower() == email_low
+            is_to = (tr.get("to_email") or "").lower() == email_low
+            if not is_from and not is_to:
+                continue
+            if is_to and not _recipient_may_see_transfer(tr, email_low):
+                continue
+            row = dict(tr)
+            row["kind"] = "transfer"
+            rows.append(row)
     if include_asset_add:
         for req in reversed(list_asset_add_requests()):
             if (req.get("requester_email") or "").lower() != email_low:
@@ -3300,6 +3615,9 @@ async def api_transfer_locations(request: Request, q: str = "", asset_ids: str =
     if not items:
         items = _location_suggestions_from_all_assets(raw_assets)
 
+    for it in items:
+        it["name"] = _transfer_location_ui_label(str(it.get("name") or ""))
+
     if qn:
         items = [x for x in items if qn in (x.get("name") or "").lower()]
 
@@ -3311,9 +3629,9 @@ async def api_transfer_locations(request: Request, q: str = "", asset_ids: str =
             continue
         seen.add(key)
         uniq.append(it)
-        if len(uniq) >= 80:
-            break
-    return JSONResponse({"items": uniq})
+
+    uniq.sort(key=lambda x: (x.get("name") or "").casefold())
+    return JSONResponse({"items": uniq[:80]})
 
 
 @app.post("/transfer/start")
@@ -3418,14 +3736,16 @@ async def transfer_start_submit(
             "to_employee_id": to_eid,
             "receiver_location_id": receiver_loc_id,
             "assets": selected_assets,
-            "status": "pending_receiver",
+            "use_drawn_signatures": True,
         }
     )
-    _notify_transfer_new_to_recipient(transfer_id, tr_new)
     _write_audit(
         request,
         action="transfer_start",
         details=f"transfer_id={transfer_id}; assets={','.join(str(a['id']) for a in selected_assets)}",
+    )
+    request.session["flash_message"] = (
+        "Заявка создана. Поставьте подпись отправителя на этой странице — после этого получатель увидит заявку и сможет ответить."
     )
     return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
 
@@ -3540,6 +3860,11 @@ async def transfer_detail_page(request: Request, transfer_id: str):
     if not is_admin and email_low not in {(tr.get("from_email") or "").lower(), (tr.get("to_email") or "").lower()}:
         request.session["flash_message"] = "Недостаточно прав для просмотра этой заявки."
         return RedirectResponse(url="/transfers", status_code=302)
+    if not is_admin and not _recipient_may_see_transfer(tr, email_low):
+        request.session["flash_message"] = (
+            "Эта заявка пока недоступна: отправитель должен сначала поставить подпись. После этого вы получите письмо."
+        )
+        return RedirectResponse(url="/transfers", status_code=302)
     client = _build_atracker_client()
     try:
         from_city_display = await _compute_from_city_display(tr, client)
@@ -3553,6 +3878,7 @@ async def transfer_detail_page(request: Request, transfer_id: str):
         "is_admin": is_admin,
         "is_recipient": email_low == (tr.get("to_email") or "").lower(),
         "is_sender": email_low == (tr.get("from_email") or "").lower(),
+        "use_drawn": _transfer_use_drawn_signatures(tr),
         "message": request.session.pop("flash_message", None),
     }
     return render_template("transfer_detail.html", context)
@@ -3579,6 +3905,11 @@ async def transfer_act_print(request: Request, transfer_id: str):
     if not is_admin and email_low not in {(tr.get("from_email") or "").lower(), (tr.get("to_email") or "").lower()}:
         request.session["flash_message"] = "Недостаточно прав для просмотра акта."
         return RedirectResponse(url="/transfers", status_code=302)
+    if not is_admin and not _recipient_may_see_transfer(tr, email_low):
+        request.session["flash_message"] = (
+            "Накладная станет доступна после подписи отправителя."
+        )
+        return RedirectResponse(url="/transfers", status_code=302)
     wb = (tr.get("waybill_number") or "").strip()
     op_num = wb if wb else "—"
     act_date = datetime.now().strftime("%d.%m.%Y")
@@ -3600,6 +3931,7 @@ async def transfer_act_print(request: Request, transfer_id: str):
     act_groups = _act_groups_by_location(act_assets)
     if not act_groups:
         act_groups = [{"location_label": "", "assets": act_assets or []}]
+    sig_urls = _transfer_signature_image_urls(request, transfer_id, tr)
     context = {
         "request": request,
         "title": "Накладная на перемещение",
@@ -3608,6 +3940,8 @@ async def transfer_act_print(request: Request, transfer_id: str):
         "operation_display": op_num,
         "act_assets": act_assets,
         "act_groups": act_groups,
+        "signature_sender_url": sig_urls.get("sender"),
+        "signature_receiver_url": sig_urls.get("receiver"),
     }
     return render_template("transfer_act_print.html", context)
 
@@ -3628,6 +3962,8 @@ async def transfer_signed_scan_file(request: Request, transfer_id: str):
     is_admin = bool(request.session.get("is_admin"))
     if not is_admin and email_low not in {(tr.get("from_email") or "").lower(), (tr.get("to_email") or "").lower()}:
         return Response(status_code=403)
+    if not is_admin and not _recipient_may_see_transfer(tr, email_low):
+        return Response(status_code=403)
     path = Path(tr.get("scan_file_path") or "")
     if not path.is_file():
         return Response(status_code=404)
@@ -3640,6 +3976,143 @@ async def transfer_signed_scan_file(request: Request, transfer_id: str):
         filename=fname,
         content_disposition_type=disp,
     )
+
+
+@app.get("/transfers/{transfer_id}/signature/{role}")
+async def transfer_signature_png(request: Request, transfer_id: str, role: str):
+    """PNG подписи для предпросмотра в накладной (только участники или админ)."""
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return Response(status_code=401)
+    if role not in ("sender", "receiver"):
+        return Response(status_code=404)
+    if not WEB_TRANSFER_ENABLED:
+        return Response(status_code=404)
+    tr = get_transfer(transfer_id)
+    if not tr:
+        return Response(status_code=404)
+    email_low = (email or "").lower()
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin and email_low not in {(tr.get("from_email") or "").lower(), (tr.get("to_email") or "").lower()}:
+        return Response(status_code=403)
+    if not is_admin and not _recipient_may_see_transfer(tr, email_low):
+        return Response(status_code=403)
+    key = "sender_signature_path" if role == "sender" else "receiver_signature_path"
+    path = Path(tr.get(key) or "")
+    root = TRANSFER_UPLOADS_DIR.resolve()
+    if not path.is_file() or not _path_is_under_dir(path, root):
+        return Response(status_code=404)
+    return FileResponse(path, media_type="image/png", filename=path.name)
+
+
+@app.post("/transfers/{transfer_id}/sign-sender")
+async def transfer_sign_sender(request: Request, transfer_id: str, signature_png: str = Form("")):
+    """Сохраняет нарисованную подпись отправителя; после этого получатель видит заявку."""
+    email = request.session.get("user_email")
+    if not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not WEB_TRANSFER_ENABLED:
+        request.session["flash_message"] = (
+            "Оформление заявок на перемещение техники отключено в настройках сайта."
+        )
+        return RedirectResponse(url="/assets", status_code=302)
+    tr = get_transfer(transfer_id)
+    if not tr:
+        request.session["flash_message"] = "Заявка не найдена."
+        return RedirectResponse(url="/transfers", status_code=302)
+    if (tr.get("from_email") or "").lower() != (email or "").lower():
+        request.session["flash_message"] = "Подпись отправителя может поставить только отправитель."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    if tr.get("status") != "pending_sender_sign" or not _transfer_use_drawn_signatures(tr):
+        request.session["flash_message"] = "Сейчас не требуется подпись отправителя для этой заявки."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    raw, err = _decode_data_url_png(signature_png)
+    if not raw:
+        request.session["flash_message"] = err or "Не удалось сохранить подпись."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    TRANSFER_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    rel_path = TRANSFER_UPLOADS_DIR / f"{transfer_id}_sender_sig.png"
+    rel_path.write_bytes(raw)
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    update_transfer(
+        transfer_id,
+        {
+            "sender_signature_path": str(rel_path.resolve()),
+            "sender_signed_at": ts,
+            "status": "pending_receiver",
+        },
+    )
+    tr_after = get_transfer(transfer_id) or {}
+    _notify_transfer_new_to_recipient(transfer_id, tr_after)
+    _write_audit(request, action="transfer_sender_signed", details=f"transfer_id={transfer_id}")
+    request.session["flash_message"] = (
+        "Подпись отправителя сохранена. Получатель получит письмо и сможет подтвердить или отклонить заявку."
+    )
+    return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+
+
+@app.post("/transfers/{transfer_id}/sign-receiver")
+async def transfer_sign_receiver(request: Request, transfer_id: str, signature_png: str = Form("")):
+    """Подпись получателя + сборка PDF акта для администратора."""
+    email = request.session.get("user_email")
+    if not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not WEB_TRANSFER_ENABLED:
+        request.session["flash_message"] = (
+            "Оформление заявок на перемещение техники отключено в настройках сайта."
+        )
+        return RedirectResponse(url="/assets", status_code=302)
+    tr = get_transfer(transfer_id)
+    if not tr:
+        request.session["flash_message"] = "Заявка не найдена."
+        return RedirectResponse(url="/transfers", status_code=302)
+    if (tr.get("to_email") or "").lower() != (email or "").lower():
+        request.session["flash_message"] = "Подпись получателя может поставить только получатель."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    if tr.get("status") != "pending_receiver_sign" or not _transfer_use_drawn_signatures(tr):
+        request.session["flash_message"] = "Сейчас не требуется подпись получателя для этой заявки."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    sender_path = Path(tr.get("sender_signature_path") or "")
+    root = TRANSFER_UPLOADS_DIR.resolve()
+    if not sender_path.is_file() or not _path_is_under_dir(sender_path, root):
+        request.session["flash_message"] = "Не найдена подпись отправителя. Обратитесь к администратору."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    raw, err = _decode_data_url_png(signature_png)
+    if not raw:
+        request.session["flash_message"] = err or "Не удалось сохранить подпись."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    TRANSFER_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    receiver_path = TRANSFER_UPLOADS_DIR / f"{transfer_id}_receiver_sig.png"
+    receiver_path.write_bytes(raw)
+    act_pdf = TRANSFER_UPLOADS_DIR / f"{transfer_id}_act.pdf"
+    try:
+        _build_transfer_act_pdf(tr, sender_path, receiver_path, act_pdf)
+    except Exception as ex:
+        logger.exception("transfer act pdf: %s", ex)
+        request.session["flash_message"] = "Не удалось сформировать PDF акта. Попробуйте ещё раз или сообщите администратору."
+        return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+    wb = (tr.get("waybill_number") or "").strip() or transfer_id[:8]
+    orig_name = f"Накладная_{wb}_акт.pdf"
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    update_transfer(
+        transfer_id,
+        {
+            "receiver_signature_path": str(receiver_path.resolve()),
+            "receiver_signed_at": ts,
+            "scan_file_path": str(act_pdf.resolve()),
+            "scan_original_name": orig_name,
+            "scan_verified": True,
+            "status": "ready_for_admin",
+        },
+    )
+    tr_after = get_transfer(transfer_id) or {}
+    _notify_transfer_scan_uploaded(transfer_id, tr_after)
+    _write_audit(request, action="transfer_receiver_signed", details=f"transfer_id={transfer_id}")
+    request.session["flash_message"] = (
+        "Подпись получателя сохранена, акт сформирован и отправлен администратору на проверку."
+    )
+    return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
 
 
 @app.post("/transfers/{transfer_id}/confirm")
@@ -3662,11 +4135,20 @@ async def transfer_confirm(request: Request, transfer_id: str):
     if tr.get("status") != "pending_receiver":
         request.session["flash_message"] = "Эта заявка уже подтверждена или закрыта."
         return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
-    update_transfer(transfer_id, {"status": "pending_scan"})
-    _write_audit(request, action="transfer_confirmed_by_recipient", details=f"transfer_id={transfer_id}")
-    request.session["flash_message"] = (
-        "Получение подтверждено. Загрузите подписанный акт."
-    )
+    if _transfer_use_drawn_signatures(tr):
+        update_transfer(transfer_id, {"status": "pending_receiver_sign"})
+        tr_after = get_transfer(transfer_id) or {}
+        _notify_sender_recipient_accepted(transfer_id, tr_after)
+        _write_audit(request, action="transfer_confirmed_by_recipient", details=f"transfer_id={transfer_id}")
+        request.session["flash_message"] = (
+            "Получение подтверждено. Поставьте подпись получателя на этой странице — затем заявка уйдёт администратору."
+        )
+    else:
+        update_transfer(transfer_id, {"status": "pending_scan"})
+        _write_audit(request, action="transfer_confirmed_by_recipient", details=f"transfer_id={transfer_id}")
+        request.session["flash_message"] = (
+            "Получение подтверждено. Загрузите подписанный акт."
+        )
     return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
 
 
@@ -3789,9 +4271,10 @@ async def transfer_cancel(request: Request, transfer_id: str):
     if not is_admin and not is_sender:
         request.session["flash_message"] = "Недостаточно прав для отмены перемещения техники."
         return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
-    if not is_admin and is_sender and tr.get("status") != "pending_receiver":
+    sender_may_cancel_statuses = {"pending_receiver", "pending_sender_sign"}
+    if not is_admin and is_sender and tr.get("status") not in sender_may_cancel_statuses:
         request.session["flash_message"] = (
-            "Отмена доступна только до ответа получателя. Дальше — через администратора."
+            "Отмена отправителем на этом этапе недоступна. Обратитесь к администратору."
         )
         return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
     update_transfer(transfer_id, {"status": "cancelled"})
