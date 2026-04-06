@@ -1155,14 +1155,43 @@ def _reportlab_register_cyrillic_fonts() -> tuple[str | None, str | None]:
     return None, None
 
 
+def _transfer_act_date_str(tr: dict) -> str:
+    """Дата для шапки акта (как на печатной форме в вебе)."""
+    act_date = datetime.now().strftime("%d.%m.%Y")
+    created = tr.get("created_at") or ""
+    if created and len(created) >= 10:
+        try:
+            parts = created[:10].split("-")
+            if len(parts) == 3:
+                act_date = f"{parts[2]}.{parts[1]}.{parts[0]}"
+        except Exception:
+            pass
+    return act_date
+
+
+_TRANSFER_ACT_LEGAL_P = (
+    "В случае невозврата вверенного имущества работник дает согласие на удержание рыночной стоимости "
+    "данного имущества из суммы, причитающейся работнику, в соответствии со статьей 140 Трудового кодекса РФ."
+)
+
+
 def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest: Path) -> None:
-    """Собирает PDF накладной с таблицей активов и двумя подписями (PNG)."""
+    """PDF накладной: вёрстка как в transfer_act_print.html / шаблоне docx (таблица 6 кол., подписи в 2 колонки)."""
     from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import cm
     from reportlab.platypus import Image as RLImage
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import (
+        KeepTogether,
+        PageBreak,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
 
     pdf_norm, pdf_bold = _reportlab_register_cyrillic_fonts()
     if not pdf_norm:
@@ -1170,30 +1199,86 @@ def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest
             "Для PDF акта не найден шрифт с кириллицей. На сервере установите пакет шрифтов "
             "(например fonts-dejavu-core / fonts-liberation) или положите DejaVuSans.ttf в front_site/fonts/."
         )
+
+    margin_side = 1.2 * cm
+    margin_v = 1.0 * cm
+    doc = SimpleDocTemplate(
+        str(dest),
+        pagesize=A4,
+        leftMargin=margin_side,
+        rightMargin=margin_side,
+        topMargin=margin_v,
+        bottomMargin=margin_v,
+    )
+    inner_w = doc.width
+
     base = getSampleStyleSheet()
     _sn = f"x{id(dest)}"
+    # Кегли близко к печатной форме: 14pt заголовок, 11pt текст, 10pt таблица и юр. абзац
+    sty_org = ParagraphStyle(
+        "pdf_org" + _sn,
+        parent=base["Normal"],
+        fontName=pdf_norm,
+        fontSize=9,
+        leading=11,
+        spaceAfter=6,
+    )
     sty_title = ParagraphStyle(
         "pdf_title" + _sn,
         parent=base["Title"],
         fontName=pdf_norm,
-        fontSize=16,
-        leading=20,
-        spaceAfter=8,
+        fontSize=14,
+        leading=17,
+        alignment=TA_CENTER,
+        spaceAfter=10,
     )
-    sty_normal = ParagraphStyle(
-        "pdf_normal" + _sn,
+    sty_meta = ParagraphStyle(
+        "pdf_meta" + _sn,
+        parent=base["Normal"],
+        fontName=pdf_norm,
+        fontSize=11,
+        leading=14,
+        spaceAfter=9,
+    )
+    sty_table_hdr = ParagraphStyle(
+        "pdf_th" + _sn,
+        parent=base["Normal"],
+        fontName=pdf_bold,
+        fontSize=10,
+        leading=12,
+    )
+    sty_table_cell = ParagraphStyle(
+        "pdf_tc" + _sn,
+        parent=base["Normal"],
+        fontName=pdf_norm,
+        fontSize=10,
+        leading=12,
+    )
+    sty_legal = ParagraphStyle(
+        "pdf_legal" + _sn,
         parent=base["Normal"],
         fontName=pdf_norm,
         fontSize=10,
         leading=13,
+        alignment=TA_JUSTIFY,
+        spaceBefore=10,
+        spaceAfter=12,
     )
-    sty_h2 = ParagraphStyle(
-        "pdf_h2" + _sn,
-        parent=base["Heading2"],
+    sty_sig_lbl = ParagraphStyle(
+        "pdf_sl" + _sn,
+        parent=base["Normal"],
+        fontName=pdf_bold,
+        fontSize=10,
+        leading=12,
+        spaceAfter=4,
+    )
+    sty_sig_fio = ParagraphStyle(
+        "pdf_sf" + _sn,
+        parent=base["Normal"],
         fontName=pdf_norm,
-        fontSize=12,
-        leading=15,
-        spaceAfter=6,
+        fontSize=10,
+        leading=12,
+        spaceBefore=4,
     )
 
     def _lbl(s: str) -> str:
@@ -1202,93 +1287,155 @@ def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest
     def _px(*parts: str) -> str:
         return "".join(escape(p) for p in parts)
 
+    def _sender_suffix(group: dict) -> str:
+        loc = (group.get("location_label") or "").strip()
+        if loc:
+            return f" ({loc})"
+        fc = (tr.get("from_city") or "").strip()
+        if fc and fc != "—":
+            return f" ({fc})"
+        fe = (tr.get("from_email") or "").strip()
+        if fe:
+            return f" ({fe})"
+        return ""
+
+    def _recipient_suffix() -> str:
+        tc = (tr.get("to_city") or "").strip()
+        if tc and tc != "—":
+            return f" ({tc})"
+        te = (tr.get("to_email") or "").strip()
+        if te:
+            return f" ({te})"
+        return ""
+
     wb = (tr.get("waybill_number") or "").strip() or "—"
+    act_date = _transfer_act_date_str(tr)
+    act_assets: list[dict] = [dict(x) for x in (tr.get("assets") or [])]
+    groups = _act_groups_by_location(act_assets)
+    if not groups:
+        groups = [{"location_label": "", "assets": act_assets or []}]
+
     story: list = []
-    story.append(Paragraph(_px("Накладная на перемещение № ", wb), sty_title))
-    story.append(Spacer(1, 0.4 * cm))
+    org_name = (tr.get("organization_name") or "").strip()
     ff = tr.get("from_fio") or "—"
-    fe = tr.get("from_email") or "—"
-    story.append(
-        Paragraph(
-            _lbl("Отправитель:") + " " + _px(ff, " (", fe, ")"),
-            sty_normal,
-        )
-    )
     tf = tr.get("to_fio") or "—"
-    te = tr.get("to_email") or "—"
-    story.append(
-        Paragraph(
-            _lbl("Получатель:") + " " + _px(tf, " (", te, ")"),
-            sty_normal,
-        )
-    )
-    story.append(
-        Paragraph(
-            _lbl("Организация:")
-            + " "
-            + escape(str(tr.get("organization_name") or "—"))
-            + " · "
-            + _lbl("Куда:")
-            + " "
-            + escape(str(tr.get("receiver_location_name") or tr.get("to_city") or "—")),
-            sty_normal,
-        )
-    )
-    story.append(Spacer(1, 0.5 * cm))
 
-    assets = tr.get("assets") or []
-    tbl_data: list[list[str]] = [
-        ["№", "Наименование", "Инв. №", "Серийный №"],
-    ]
-    for idx, a in enumerate(assets, start=1):
-        if not isinstance(a, dict):
-            continue
-        tbl_data.append(
-            [
-                str(idx),
-                str(a.get("name") or "—"),
-                str(a.get("invent") or "—"),
-                str(a.get("serial") or "—"),
-            ]
+    col_ratios = [0.9, 2.9, 1.15, 1.35, 1.35, 0.55]
+    rs = sum(col_ratios)
+    col_widths = [inner_w * r / rs for r in col_ratios]
+
+    for gi, group in enumerate(groups):
+        if gi > 0:
+            story.append(PageBreak())
+        if org_name:
+            story.append(Paragraph(_lbl("Организация:") + " " + escape(org_name), sty_org))
+        story.append(
+            Paragraph(
+                _px("Накладная на перемещение № ", wb, " от ", act_date),
+                sty_title,
+            )
         )
-    if len(tbl_data) == 1:
-        tbl_data.append(["—", "—", "—", "—"])
-
-    t = Table(tbl_data, colWidths=[1 * cm, 7 * cm, 3 * cm, 3.5 * cm])
-    tbl_cmds: list = [
-        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("FONTNAME", (0, 0), (-1, -1), pdf_norm),
-    ]
-    t.setStyle(TableStyle(tbl_cmds))
-    story.append(t)
-    story.append(Spacer(1, 0.8 * cm))
-    story.append(
-        Paragraph(
-            _lbl("Подписи (нарисованы в веб-интерфейсе)"),
-            sty_h2,
+        story.append(
+            Paragraph(
+                _lbl("Отправитель:") + " " + escape(str(ff)) + escape(_sender_suffix(group)),
+                sty_meta,
+            )
         )
-    )
-    story.append(Spacer(1, 0.3 * cm))
+        story.append(
+            Paragraph(
+                _lbl("Получатель:") + " " + escape(str(tf)) + escape(_recipient_suffix()),
+                sty_meta,
+            )
+        )
+        story.append(Spacer(1, 0.15 * cm))
 
-    def _sig_flow(path: Path, caption: str) -> None:
-        from PIL import Image as PILImage
+        g_assets = group.get("assets") or []
+        hdr_labels = ["№", "Наименование", "Тип", "Инвентарный №", "Серийный №", "Кол-во"]
+        hdr_cells = [Paragraph(escape(h), sty_table_hdr) for h in hdr_labels]
+        tbl_rows: list[list] = [hdr_cells]
+        for idx, a in enumerate(g_assets, start=1):
+            if not isinstance(a, dict):
+                continue
+            qty = a.get("qty", 1)
+            try:
+                qty_s = str(int(qty))
+            except (TypeError, ValueError):
+                qty_s = str(qty) if qty is not None else "1"
+            tbl_rows.append(
+                [
+                    Paragraph(escape(str(idx)), sty_table_cell),
+                    Paragraph(escape(str(a.get("name") or "—")), sty_table_cell),
+                    Paragraph(escape(str(a.get("category") or "—")), sty_table_cell),
+                    Paragraph(escape(str(a.get("invent") or "—")), sty_table_cell),
+                    Paragraph(escape(str(a.get("serial") or "—")), sty_table_cell),
+                    Paragraph(escape(qty_s), sty_table_cell),
+                ]
+            )
+        if len(tbl_rows) == 1:
+            tbl_rows.append(
+                [
+                    Paragraph("—", sty_table_cell),
+                    Paragraph("—", sty_table_cell),
+                    Paragraph("—", sty_table_cell),
+                    Paragraph("—", sty_table_cell),
+                    Paragraph("—", sty_table_cell),
+                    Paragraph("—", sty_table_cell),
+                ]
+            )
 
+        t = Table(tbl_rows, colWidths=col_widths, repeatRows=1)
+        t.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story.append(t)
+
+    story.append(Paragraph(escape(_TRANSFER_ACT_LEGAL_P), sty_legal))
+
+    from PIL import Image as PILImage
+
+    def _sig_column(path: Path, title_plain: str, fio_line: str) -> KeepTogether:
         im = PILImage.open(path)
         w, h = im.size
-        max_w, max_h = 6 * cm, 2.2 * cm
+        half = inner_w / 2 - 8
+        max_w, max_h = float(half), 2.0 * cm
         scale = min(max_w / w, max_h / h, 1.0)
         rw, rh = w * scale, h * scale
-        story.append(Paragraph(_lbl(caption), sty_normal))
-        story.append(RLImage(str(path), width=rw, height=rh))
-        story.append(Spacer(1, 0.4 * cm))
+        img = RLImage(str(path), width=rw, height=rh)
+        return KeepTogether(
+            [
+                Paragraph(_lbl(title_plain), sty_sig_lbl),
+                Spacer(1, 0.1 * cm),
+                img,
+                Paragraph(escape(fio_line or ""), sty_sig_fio),
+            ]
+        )
 
-    _sig_flow(sender_sig, "Отпустил (отправитель)")
-    _sig_flow(receiver_sig, "Получил (получатель)")
+    left_k = _sig_column(sender_sig, "Отпустил", str(tr.get("from_fio") or ""))
+    right_k = _sig_column(receiver_sig, "Получил", str(tr.get("to_fio") or ""))
+    sig_tbl = Table([[left_k, right_k]], colWidths=[inner_w / 2, inner_w / 2])
+    sig_tbl.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
+    story.append(sig_tbl)
 
-    doc = SimpleDocTemplate(str(dest), pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.2 * cm)
     doc.build(story)
 
 
@@ -3951,15 +4098,7 @@ async def transfer_act_print(request: Request, transfer_id: str):
         return RedirectResponse(url="/transfers", status_code=302)
     wb = (tr.get("waybill_number") or "").strip()
     op_num = wb if wb else "—"
-    act_date = datetime.now().strftime("%d.%m.%Y")
-    created = tr.get("created_at") or ""
-    if created and len(created) >= 10:
-        try:
-            parts = created[:10].split("-")
-            if len(parts) == 3:
-                act_date = f"{parts[2]}.{parts[1]}.{parts[0]}"
-        except Exception:
-            pass
+    act_date = _transfer_act_date_str(tr)
     act_assets: list[dict] = [dict(x) for x in (tr.get("assets") or [])]
     if act_assets and ATRACKER_ASSET_INFO_SERVICE_ID:
         client = _build_atracker_client()
