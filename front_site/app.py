@@ -1184,7 +1184,6 @@ def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest
     from reportlab.lib.units import cm
     from reportlab.platypus import Image as RLImage
     from reportlab.platypus import (
-        KeepTogether,
         PageBreak,
         Paragraph,
         SimpleDocTemplate,
@@ -1403,22 +1402,35 @@ def _build_transfer_act_pdf(tr: dict, sender_sig: Path, receiver_sig: Path, dest
 
     from PIL import Image as PILImage
 
-    def _sig_column(path: Path, title_plain: str, fio_line: str) -> KeepTogether:
+    def _sig_column(path: Path, title_plain: str, fio_line: str) -> Table:
+        """Одна колонка подписи как вложенная таблица (без KeepTogether в ячейке — иначе LayoutError на 2-й странице)."""
         im = PILImage.open(path)
         w, h = im.size
-        half = inner_w / 2 - 8
-        max_w, max_h = float(half), 2.0 * cm
+        col_w = inner_w / 2 - 10
+        max_w, max_h = float(col_w), 2.0 * cm
         scale = min(max_w / w, max_h / h, 1.0)
         rw, rh = w * scale, h * scale
         img = RLImage(str(path), width=rw, height=rh)
-        return KeepTogether(
+        inner = Table(
             [
-                Paragraph(_lbl(title_plain), sty_sig_lbl),
-                Spacer(1, 0.1 * cm),
-                img,
-                Paragraph(escape(fio_line or ""), sty_sig_fio),
-            ]
+                [Paragraph(_lbl(title_plain), sty_sig_lbl)],
+                [img],
+                [Paragraph(escape(fio_line or ""), sty_sig_fio)],
+            ],
+            colWidths=[col_w],
         )
+        inner.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            )
+        )
+        return inner
 
     left_k = _sig_column(sender_sig, "Отпустил", str(tr.get("from_fio") or ""))
     right_k = _sig_column(receiver_sig, "Получил", str(tr.get("to_fio") or ""))
