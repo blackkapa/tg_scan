@@ -631,28 +631,16 @@ def _act_groups_by_location(act_assets: list[dict]) -> list[dict]:
 
 def _location_from_asset_row(asset: dict) -> tuple[int | None, str]:
     """Место на карточке актива: имя + ID локации, если есть отдельное числовое поле."""
-    name = _asset_location_display(asset)
-    if name == "—":
+    if not isinstance(asset, dict):
         return None, "—"
-    nested = asset.get("lt_lLocationId")
-    if isinstance(nested, dict):
-        vid = nested.get("ID") or nested.get("Id") or nested.get("id")
-        if vid is not None and str(vid).strip().isdigit():
-            try:
-                return int(vid), name
-            except ValueError:
-                pass
-    for k in ("lLocationId", "L_LocationId", "lLocationID"):
-        v = asset.get(k)
-        if v is None:
-            continue
-        s = str(v).strip()
-        if s.isdigit():
-            try:
-                return int(s), name
-            except ValueError:
-                pass
-    return None, name
+    name = _asset_location_display(asset)
+    lid = _portfolio_location_id(asset)
+    if name != "—":
+        return lid, name
+    # В выдаче по ФИО часто только числовой lLocationId без вложенного объекта с названием
+    if lid is not None and lid > 0:
+        return lid, f"Локация #{lid}"
+    return None, "—"
 
 
 def _location_suggestions_from_assets(
@@ -3614,11 +3602,17 @@ async def api_transfer_locations(request: Request, q: str = "", asset_ids: str =
     if not items:
         items = _location_suggestions_from_all_assets(raw_assets)
 
+    # Фильтр по запросу — до укорочения подписи: в UI показываем хвост после «/», а ищут часто по полному пути
+    if qn:
+        items = [
+            x
+            for x in items
+            if qn in str(x.get("name") or "").lower()
+            or qn in _transfer_location_ui_label(str(x.get("name") or "")).lower()
+        ]
+
     for it in items:
         it["name"] = _transfer_location_ui_label(str(it.get("name") or ""))
-
-    if qn:
-        items = [x for x in items if qn in (x.get("name") or "").lower()]
 
     seen: set[tuple] = set()
     uniq: list[dict] = []

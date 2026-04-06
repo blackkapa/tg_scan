@@ -145,8 +145,22 @@
             var aid = assetIds ? assetIds.value : "";
             var url = "/api/transfer/locations?q=" + encodeURIComponent(q) + "&asset_ids=" + encodeURIComponent(aid);
             fetch(url, { credentials: "same-origin" })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
+                .then(function (r) {
+                    return r.json().then(function (data) {
+                        return { ok: r.ok, status: r.status, data: data || {} };
+                    });
+                })
+                .then(function (res) {
+                    var data = res.data;
+                    if (!res.ok) {
+                        var err = (data && data.error) ? String(data.error) : ("HTTP " + res.status);
+                        var msg = err === "unauthorized" ? "Сессия истекла — обновите страницу и войдите снова."
+                            : err === "disabled" ? "Перемещения отключены в настройках."
+                            : "Не удалось загрузить список локаций.";
+                        list.innerHTML = "<li class=\"autocomplete__item autocomplete__item--muted\">" + msg + "</li>";
+                        list.hidden = false;
+                        return;
+                    }
                     var items = (data && data.items) ? data.items : [];
                     list.innerHTML = "";
                     if (!items.length) {
