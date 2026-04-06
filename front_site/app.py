@@ -19,6 +19,7 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 import sys
 import errno
+import shutil
 import subprocess
 import hashlib
 from configparser import ConfigParser
@@ -1563,6 +1564,15 @@ def _save_settings_config(
         cfg.write(f)
 
 
+def _systemctl_bin() -> str:
+    """Полный путь к systemctl; в sudoers NOPASSWD должен быть тот же путь (см. command -v systemctl)."""
+    for candidate in ("/usr/bin/systemctl", "/bin/systemctl"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    found = shutil.which("systemctl")
+    return found or "/usr/bin/systemctl"
+
+
 def _restart_front_site_service() -> bool:
     """
     Пробуем перезапустить systemd-сервис front_site.service.
@@ -1573,11 +1583,12 @@ def _restart_front_site_service() -> bool:
     """
     if not sys.platform.startswith("linux"):
         return True
-    cmd_restart = ["restart", "front_site.service"]
+    ctl = _systemctl_bin()
+    cmd_restart = [ctl, "restart", "front_site.service"]
     try:
-        # 1) sudo без пароля (см. visudo: www-data NOPASSWD для systemctl restart)
+        # 1) sudo без пароля (sudoers: www-data NOPASSWD: /usr/bin/systemctl restart front_site.service)
         r1 = subprocess.run(
-            ["sudo", "-n", "systemctl", *cmd_restart],
+            ["sudo", "-n", *cmd_restart],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -1587,7 +1598,7 @@ def _restart_front_site_service() -> bool:
             return True
         # 2) без sudo — сработает при запуске от root или политике systemd
         r2 = subprocess.run(
-            ["systemctl", *cmd_restart],
+            cmd_restart,
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
