@@ -144,6 +144,9 @@ ATRACKER_ASSET_ADD_REQUEST_GET_SERVICE_ID = _getint("atracker", "asset_add_reque
 ATRACKER_PORTFOLIO_CREATE_SERVICE_ID = _getint("atracker", "portfolio_create_service_id", 0)
 ATRACKER_PORTFOLIO_UPDATE_SERVICE_ID = _getint("atracker", "portfolio_update_service_id", 0)
 ATRACKER_REQUEST_ATTACH_SERVICE_ID = _getint("atracker", "request_attach_service_id", 0)
+# Сервис поиска активов по серийному номеру (GET /Api/Service?id=...&SerialNo=...).
+# 0 — проверка дублей по серийнику отключена.
+ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID = _getint("atracker", "asset_find_by_serial_service_id", 0)
 
 # --- Telegram ---
 TELEGRAM_BOT_TOKEN = _get("telegram", "bot_token", "")

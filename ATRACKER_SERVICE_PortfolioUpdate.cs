@@ -4,6 +4,7 @@
 // - portfolioId | PortfolioId | assetId | AssetId | ID (обяз.)
 // - lUserId | LUserId
 // - categoryId | CategoryId | lCategoryId | LCategoryId
+// - assetName | AssetName | sFullName | SFullName | name | Name
 // - serialNo | SerialNo | sSerialNo | SSerialNo
 // - inventNumber | InventNumber | sInventNumber | SInventNumber
 // - comment | Comment | sComment | SComment
@@ -77,6 +78,7 @@ try
     long portfolioId = L(VV("portfolioId", "PortfolioId", "assetId", "AssetId", "ID", "Id"));
     long lUserId = L(VV("lUserId", "LUserId"));
     long categoryId = L(VV("categoryId", "CategoryId", "lCategoryId", "LCategoryId"));
+    string assetName = S(VV("assetName", "AssetName", "sFullName", "SFullName", "name", "Name"));
     string serialNo = S(VV("serialNo", "SerialNo", "sSerialNo", "SSerialNo"));
     string inventNumber = S(VV("inventNumber", "InventNumber", "sInventNumber", "SInventNumber", "sInventoryNo", "SInventoryNo"));
     string comment = S(VV("comment", "Comment", "sComment", "SComment"));
@@ -112,6 +114,8 @@ try
 
                     var row = p2.Rows[0];
                     if (lUserId > 0) row["lUserId"] = idsAsString ? (object)S(lUserId) : (object)((int)lUserId);
+                    if (!string.IsNullOrWhiteSpace(assetName))
+                        row["sFullName"] = assetName;
                     if (categoryId > 0)
                     {
                         try { row["lCategoryId"] = idsAsString ? (object)S(categoryId) : (object)((int)categoryId); } catch { }
@@ -128,7 +132,21 @@ try
                         else row["sInventoryNo"] = inventNumber;
                     }
                     if (!string.IsNullOrWhiteSpace(comment))
-                        row["sComment"] = comment;
+                    {
+                        var prev = "";
+                        try
+                        {
+                            if (row.ContainsKey("sComment") && row["sComment"] != null)
+                                prev = row["sComment"].ToString().Trim();
+                        }
+                        catch { }
+                        if (string.IsNullOrWhiteSpace(prev))
+                            row["sComment"] = comment;
+                        else if (prev.IndexOf(comment, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                            row["sComment"] = prev;
+                        else
+                            row["sComment"] = prev + "\n" + comment;
+                    }
 
                     p2.Update();
                     updatedOk = true;

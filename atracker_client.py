@@ -228,6 +228,7 @@ class ATrackerClient:
         portfolio_create_service_id: Optional[int] = None,
         portfolio_update_service_id: Optional[int] = None,
         request_attach_service_id: Optional[int] = None,
+        asset_find_by_serial_service_id: Optional[int] = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.username = username
@@ -247,6 +248,7 @@ class ATrackerClient:
         self.portfolio_create_service_id = int(portfolio_create_service_id or 0)
         self.portfolio_update_service_id = int(portfolio_update_service_id or 0)
         self.request_attach_service_id = int(request_attach_service_id or 0)
+        self.asset_find_by_serial_service_id = int(asset_find_by_serial_service_id or 0)
 
         self._token: Optional[str] = None
         self._token_exp: Optional[datetime.datetime] = None
@@ -405,6 +407,7 @@ class ATrackerClient:
                 "sSerialNo": serial,
                 "sInventNumber": inv_no,
                 "sInventoryNo": inv_no,
+                "sComment": str(raw.get("sComment") or raw.get("Comment") or "").strip(),
                 "OwnerFio": fio,
                 "category": category,
                 "category_id": cid,
@@ -638,3 +641,26 @@ class ATrackerClient:
         if data.get("returnCode") != "Success":
             raise RuntimeError(f"A-Tracker error: {data.get('message')}")
         return data
+
+    async def find_assets_by_serial(self, serial_number: str) -> List[Dict[str, Any]]:
+        sid = int(self.asset_find_by_serial_service_id or 0)
+        if sid <= 0:
+            raise RuntimeError("asset_find_by_serial_service_id не задан в конфигурации клиента")
+        serial = (serial_number or "").strip()
+        if not serial:
+            return []
+        async with aiohttp.ClientSession() as session:
+            await self._ensure_token(session)
+            headers = {"Authorization": f"Bearer {self._token}"}
+            url = f"{self.base_url}/Api/Service"
+            params = {
+                "id": str(sid),
+                "SerialNo": serial,
+            }
+            async with session.get(url, headers=headers, params=params) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+        if data.get("returnCode") != "Success":
+            raise RuntimeError(f"A-Tracker error: {data.get('message')}")
+        rows = data.get("data", [])
+        return rows if isinstance(rows, list) else []

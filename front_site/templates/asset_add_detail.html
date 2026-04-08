@@ -141,6 +141,15 @@
                     <span>Серийный номер</span>
                     <input class="auth-form__input" type="text" name="serial_number" value="{{ req.serial_number or '' }}">
                 </label>
+                <input type="hidden" name="atracker_chosen_portfolio_id" id="atracker_chosen_portfolio_id" value="{{ req.atracker_chosen_portfolio_id or 0 }}">
+                <div id="serial-duplicate-warning"
+                     class="hero__text"
+                     style="display:none; margin-top: -0.15rem; margin-bottom: 0.45rem; color: #8b5e00;"></div>
+                {% if serial_check_error %}
+                    <div class="hero__text" style="margin-top: -0.15rem; margin-bottom: 0.45rem; color: #9b1c1c;">
+                        Проверка серийного номера временно недоступна: {{ serial_check_error }}
+                    </div>
+                {% endif %}
                 <label class="auth-form__label">
                     <span>Инвентарный номер</span>
                     <input class="auth-form__input" type="text" name="inventory_number" value="{{ req.inventory_number or '' }}">
@@ -167,6 +176,64 @@
   const form = document.getElementById("asset-add-approve-form");
   const sdInput = document.getElementById("sd_request_number");
   if (!form || !sdInput) return;
+  const serialInput = form.querySelector('input[name="serial_number"]');
+  const chosenInput = document.getElementById("atracker_chosen_portfolio_id");
+  const warningEl = document.getElementById("serial-duplicate-warning");
+  const serialCheckEnabled = {{ "true" if serial_check_enabled else "false" }};
+  const initialDupItems = {{ (serial_duplicate_assets or []) | tojson }};
+
+  const escapeHtml = (v) => String(v || "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[ch]));
+
+  const renderDuplicateWarning = (items) => {
+    if (!warningEl || !chosenInput) return;
+    if (!Array.isArray(items) || !items.length) {
+      warningEl.style.display = "none";
+      warningEl.textContent = "";
+      chosenInput.value = "0";
+      return;
+    }
+    const first = items[0] || {};
+    chosenInput.value = String(first.id || 0);
+    const owner = first.owner_fio ? `, владелец: ${escapeHtml(first.owner_fio)}` : "";
+    const inv = first.inventory_number ? `, инв.: ${escapeHtml(first.inventory_number)}` : "";
+    warningEl.innerHTML = `Уже есть актив с таким серийным номером (ID ${escapeHtml(first.id)}, ` +
+      `${escapeHtml(first.name || "без названия")}${owner}${inv}). ` +
+      `При подтверждении будет обновлён найденный актив.`;
+    warningEl.style.display = "block";
+  };
+
+  if (serialCheckEnabled) {
+    renderDuplicateWarning(initialDupItems);
+    let reqNo = 0;
+    const checkSerial = async () => {
+      const serial = (serialInput?.value || "").trim();
+      if (!serial) {
+        renderDuplicateWarning([]);
+        return;
+      }
+      const myReq = ++reqNo;
+      try {
+        const resp = await fetch(`/api/asset-add/check-serial?serial_number=${encodeURIComponent(serial)}`);
+        const data = await resp.json();
+        if (myReq !== reqNo) return;
+        renderDuplicateWarning(Array.isArray(data?.items) ? data.items : []);
+      } catch {
+        if (myReq !== reqNo) return;
+        renderDuplicateWarning([]);
+      }
+    };
+    if (serialInput) {
+      serialInput.addEventListener("blur", checkSerial);
+      serialInput.addEventListener("change", checkSerial);
+    }
+  }
+
   form.addEventListener("submit", (e) => {
     let current = (sdInput.value || "").trim();
     while (!current) {

@@ -24,6 +24,7 @@ try
             "sFullName",
             "sSerialNo",
             "sInventNumber",
+            "sComment",
             "sInventoryNo",
             "sInventNo",
             "iQty",

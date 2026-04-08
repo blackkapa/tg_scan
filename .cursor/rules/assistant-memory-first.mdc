@@ -1,0 +1,18 @@
+---
+description: Memory-first behavior for project assistant
+alwaysApply: true
+---
+
+# Assistant Memory-First Rule
+
+- Before answering project questions, check relevant prior context in MemPalace first.
+- Prefer retrieving decisions, constraints, and past fixes from memory over guessing.
+- For repeated issues, reuse prior validated approach unless the user asks to change it.
+- If memory has conflicting entries, surface the conflict briefly and ask which direction to follow.
+- If memory has no relevant context, proceed normally and state that no prior context was found.
+
+## Expected workflow
+
+1. Query memory for the topic (feature, bug, endpoint, workflow).
+2. Ground the response/edits in retrieved context.
+3. After meaningful work, keep continuity by ensuring new context is saved via existing autosync.

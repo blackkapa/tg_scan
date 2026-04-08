@@ -1,0 +1,19 @@
+---
+description: Front-site changes must be memory-grounded first
+globs: front_site/**/*.py,front_site/templates/**/*.html,front_site/static/**/*.css
+alwaysApply: false
+---
+
+# Front-Site Memory Gate
+
+- Before proposing or editing `front_site` code, run a memory lookup in MemPalace for the same feature/bug area.
+- Use prior accepted decisions (UI behavior, endpoint logic, PDF rules, auth flow) as default implementation baseline.
+- Do not reintroduce previously fixed regressions when memory indicates a known fix.
+- If prior context conflicts with current request, follow the user’s new instruction and call out the override briefly.
+
+## Minimum execution order
+
+1. Retrieve related memory context.
+2. Summarize constraints in 1-3 short bullets internally.
+3. Apply code edits consistent with those constraints.
+4. Validate and report result.

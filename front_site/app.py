@@ -43,6 +43,7 @@ from config import (
     ATRACKER_PORTFOLIO_CREATE_SERVICE_ID,
     ATRACKER_PORTFOLIO_UPDATE_SERVICE_ID,
     ATRACKER_REQUEST_ATTACH_SERVICE_ID,
+    ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID,
     ADMIN_EMAILS,
     BYPASS_CODE_EMAILS,
     EMAIL_DOMAIN_ALLOWED,
@@ -213,6 +214,7 @@ def _build_atracker_client() -> ATrackerClient:
         portfolio_create_service_id=ATRACKER_PORTFOLIO_CREATE_SERVICE_ID,
         portfolio_update_service_id=ATRACKER_PORTFOLIO_UPDATE_SERVICE_ID,
         request_attach_service_id=ATRACKER_REQUEST_ATTACH_SERVICE_ID,
+        asset_find_by_serial_service_id=ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID,
     )
 
 
@@ -1618,6 +1620,72 @@ async def _find_created_asset_id_by_request_data(client: ATrackerClient, req: di
     return best_id if best_score >= 5 else 0
 
 
+def _norm_serial_for_match(value: str) -> str:
+    return re.sub(r"[\s\-_/]+", "", str(value or "").strip().lower())
+
+
+def _extract_serial_from_asset_row(row: dict) -> str:
+    return str(
+        row.get("sSerialNo")
+        or row.get("SerialNo")
+        or row.get("serialNo")
+        or row.get("sN")
+        or ""
+    ).strip()
+
+
+def _extract_asset_duplicate_hint(row: dict) -> dict | None:
+    if not isinstance(row, dict):
+        return None
+    aid = int(row.get("ID") or row.get("Id") or row.get("assetId") or row.get("portfolioId") or 0)
+    if aid <= 0:
+        return None
+    return {
+        "id": aid,
+        "name": str(row.get("sFullName") or row.get("Name") or row.get("assetName") or "").strip(),
+        "serial_number": _extract_serial_from_asset_row(row),
+        "inventory_number": inventory_number_from_atracker_dict(row) or "",
+        "owner_fio": str(row.get("OwnerFio") or row.get("lUserId.sFullName") or row.get("sFio") or "").strip(),
+    }
+
+
+def _merge_comments(existing_comment: str, new_comment: str) -> str:
+    existing = (existing_comment or "").strip()
+    incoming = (new_comment or "").strip()
+    if not existing:
+        return incoming
+    if not incoming:
+        return existing
+    if incoming.lower() in existing.lower():
+        return existing
+    return f"{existing}\n{incoming}".strip()
+
+
+async def _find_assets_with_same_serial(client: ATrackerClient, serial_number: str) -> list[dict]:
+    serial_norm = _norm_serial_for_match(serial_number)
+    if not serial_norm:
+        return []
+    rows = await client.find_assets_by_serial(serial_number)
+    items: list[dict] = []
+    seen_ids: set[int] = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        row_serial_norm = _norm_serial_for_match(_extract_serial_from_asset_row(row))
+        if row_serial_norm and row_serial_norm != serial_norm:
+            continue
+        hint = _extract_asset_duplicate_hint(row)
+        if not hint:
+            continue
+        aid = int(hint["id"])
+        if aid in seen_ids:
+            continue
+        seen_ids.add(aid)
+        items.append(hint)
+    items.sort(key=lambda x: int(x.get("id") or 0), reverse=True)
+    return items
+
+
 async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
     """
     Финализация заявки в A-Tracker только через веб-админку:
@@ -1704,14 +1772,50 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
     create_warning = ""
     try:
         if chosen_portfolio_id > 0 and int(ATRACKER_PORTFOLIO_UPDATE_SERVICE_ID or 0) > 0:
+            # Для существующего актива комментарий дописываем, а не перезаписываем.
+            existing_comment = ""
+            try:
+                info_existing, _ = await client.get_asset_info(chosen_portfolio_id)
+                existing_comment = str((info_existing or {}).get("sComment") or "").strip()
+            except Exception:
+                existing_comment = ""
+            merged_comment = _merge_comments(existing_comment, comment)
             upd_payload = {
                 "portfolioId": chosen_portfolio_id,
                 "PortfolioId": chosen_portfolio_id,
                 "lUserId": user_id,
                 "LUserId": user_id,
-                "sComment": comment,
-                "SComment": comment,
+                "sComment": merged_comment,
+                "SComment": merged_comment,
             }
+            # Обновляем существующий актив строго полями из формы админа.
+            if asset_name:
+                upd_payload.update(
+                    {
+                        "assetName": asset_name,
+                        "AssetName": asset_name,
+                        "sFullName": asset_name,
+                        "SFullName": asset_name,
+                    }
+                )
+            if serial_no:
+                upd_payload.update(
+                    {
+                        "serialNo": serial_no,
+                        "SerialNo": serial_no,
+                        "sSerialNo": serial_no,
+                        "SSerialNo": serial_no,
+                    }
+                )
+            if invent_no:
+                upd_payload.update(
+                    {
+                        "inventNumber": invent_no,
+                        "InventNumber": invent_no,
+                        "sInventNumber": invent_no,
+                        "SInventNumber": invent_no,
+                    }
+                )
             if category_id > 0:
                 upd_payload.update(
                     {
@@ -1733,13 +1837,15 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
             try:
                 await client.update_portfolio_asset(upd_payload)
             except Exception:
-                # Fallback: минимальный update без комментария
+                # Fallback: минимальный update без части полей (если конкретный сервис чувствителен к ним).
                 await client.update_portfolio_asset(
                     {
                         "portfolioId": chosen_portfolio_id,
                         "PortfolioId": chosen_portfolio_id,
                         "lUserId": user_id,
                         "LUserId": user_id,
+                        "sComment": merged_comment,
+                        "SComment": merged_comment,
                     }
                 )
             final_asset_id = chosen_portfolio_id
@@ -1862,6 +1968,45 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
         except Exception as ex:
             category_patch_warning = f"Не удалось проставить категорию отдельным update: {ex}"
 
+    # Отдельный "узкий" дожим наименования актива: некоторые инсталляции
+    # принимают его только в специальном/минимальном payload update.
+    asset_name_patch_warning = ""
+    if final_asset_id > 0 and asset_name and int(ATRACKER_PORTFOLIO_UPDATE_SERVICE_ID or 0) > 0:
+        try:
+            await client.update_portfolio_asset(
+                {
+                    "portfolioId": final_asset_id,
+                    "PortfolioId": final_asset_id,
+                    "assetName": asset_name,
+                    "AssetName": asset_name,
+                    "sFullName": asset_name,
+                    "SFullName": asset_name,
+                }
+            )
+            # В некоторых инсталляциях имя может игнорироваться в первом update.
+            # Проверяем и при необходимости дожимаем альтернативными ключами.
+            try:
+                info_after_name, _ = await client.get_asset_info(final_asset_id)
+                actual_name = str((info_after_name or {}).get("sFullName") or "").strip().lower()
+                if actual_name and actual_name != asset_name.strip().lower():
+                    await client.update_portfolio_asset(
+                        {
+                            "portfolioId": final_asset_id,
+                            "PortfolioId": final_asset_id,
+                            "Name": asset_name,
+                            "name": asset_name,
+                            "sName": asset_name,
+                            "sFullName": asset_name,
+                            "SFullName": asset_name,
+                            "lUserId": user_id,
+                            "LUserId": user_id,
+                        }
+                    )
+            except Exception:
+                pass
+        except Exception as ex:
+            asset_name_patch_warning = f"Не удалось обновить наименование отдельным update: {ex}"
+
     # Загружаем фото в карточку актива через существующий upload_doc сервис.
     upload_errors: list[str] = []
     for ph in (req.get("photos") or []):
@@ -1896,6 +2041,8 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
         warnings.append(recover_update_warning)
     if category_patch_warning:
         warnings.append(category_patch_warning)
+    if asset_name_patch_warning:
+        warnings.append(asset_name_patch_warning)
     if upload_errors:
         warnings.append("Часть фото не загрузилась: " + "; ".join(upload_errors[:3]))
     return updated_req, "; ".join(warnings)
@@ -3672,6 +3819,9 @@ async def asset_add_detail_page(request: Request, request_id: str):
         return RedirectResponse(url="/transfers", status_code=302)
     category_options: list[dict] = []
     location_options: list[dict] = []
+    serial_duplicate_assets: list[dict] = []
+    serial_check_error = ""
+    serial_check_enabled = int(ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID or 0) > 0
     if is_admin and req.get("status") == "pending_review":
         try:
             client = _build_atracker_client()
@@ -3700,6 +3850,14 @@ async def asset_add_detail_page(request: Request, request_id: str):
             location_options.sort(key=lambda x: str(x.get("display_name") or x.get("name") or "").lower())
         except Exception:
             location_options = []
+        if serial_check_enabled and (req.get("serial_number") or "").strip():
+            try:
+                serial_duplicate_assets = await _find_assets_with_same_serial(
+                    client, str(req.get("serial_number") or "")
+                )
+            except Exception as ex:
+                serial_duplicate_assets = []
+                serial_check_error = str(ex)
 
     context = {
         "request": request,
@@ -3708,6 +3866,9 @@ async def asset_add_detail_page(request: Request, request_id: str):
         "is_admin": is_admin,
         "category_options": category_options,
         "location_options": location_options,
+        "serial_duplicate_assets": serial_duplicate_assets,
+        "serial_check_enabled": serial_check_enabled,
+        "serial_check_error": serial_check_error,
         "message": request.session.pop("flash_message", None),
     }
     return render_template("asset_add_detail.html", context)
@@ -3748,6 +3909,28 @@ async def asset_add_photo_file(request: Request, request_id: str, photo_idx: int
         filename=ph.get("name") or p.name,
         content_disposition_type="inline",
     )
+
+
+@app.get("/api/asset-add/check-serial")
+async def api_asset_add_check_serial(request: Request, serial_number: str = ""):
+    if not request.session.get("user_email"):
+        return JSONResponse({"items": [], "error": "unauthorized"}, status_code=401)
+    if not request.session.get("is_admin"):
+        return JSONResponse({"items": [], "error": "forbidden"}, status_code=403)
+    if not WEB_ASSET_ADD_BUTTON_ENABLED:
+        return JSONResponse({"items": [], "error": "disabled"}, status_code=403)
+    if int(ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID or 0) <= 0:
+        return JSONResponse({"items": [], "enabled": False})
+
+    serial = (serial_number or "").strip()
+    if not serial:
+        return JSONResponse({"items": [], "enabled": True})
+    client = _build_atracker_client()
+    try:
+        items = await _find_assets_with_same_serial(client, serial)
+    except Exception as ex:
+        return JSONResponse({"items": [], "enabled": True, "error": str(ex)}, status_code=200)
+    return JSONResponse({"items": items, "enabled": True})
 
 
 @app.get("/api/transfer/employees")
@@ -4516,6 +4699,7 @@ async def admin_asset_add_approve(
     serial_number: str = Form(""),
     inventory_number: str = Form(""),
     comment: str = Form(""),
+    atracker_chosen_portfolio_id: str = Form(""),
 ):
     email = request.session.get("user_email")
     is_admin = bool(request.session.get("is_admin"))
@@ -4550,6 +4734,7 @@ async def admin_asset_add_approve(
     serial_number = (serial_number or "").strip()
     inventory_number = (inventory_number or "").strip()
     comment = (comment or "").strip()
+    chosen_portfolio_id = int(str(atracker_chosen_portfolio_id or "0").strip() or 0)
     if not sd_request_number:
         request.session["flash_message"] = "Перед подтверждением обязательно укажите номер заявки SD."
         return RedirectResponse(url=f"/asset-add/{request_id}", status_code=302)
@@ -4581,6 +4766,17 @@ async def admin_asset_add_approve(
         except Exception:
             pass
 
+    # Если есть поиск по серийному и серийник заполнен — пытаемся найти дубликат.
+    serial_duplicate_assets: list[dict] = []
+    if int(ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID or 0) > 0 and serial_number:
+        try:
+            client = _build_atracker_client()
+            serial_duplicate_assets = await _find_assets_with_same_serial(client, serial_number)
+        except Exception:
+            serial_duplicate_assets = []
+    if chosen_portfolio_id <= 0 and serial_duplicate_assets:
+        chosen_portfolio_id = int(serial_duplicate_assets[0].get("id") or 0)
+
     # Сохраняем правки администратора до финализации.
     req = update_asset_add_request(
         request_id,
@@ -4594,6 +4790,7 @@ async def admin_asset_add_approve(
             "serial_number": serial_number,
             "inventory_number": inventory_number,
             "comment": comment,
+            "atracker_chosen_portfolio_id": chosen_portfolio_id if chosen_portfolio_id > 0 else 0,
         },
     )
     if not req:
@@ -4630,7 +4827,14 @@ async def admin_asset_add_approve(
                 "Заявка была подтверждена ранее, финализация в A-Tracker выполнена сейчас."
             )
         else:
-            request.session["flash_message"] = "Заявка на добавление техники подтверждена и актив создан в A-Tracker."
+            if chosen_portfolio_id > 0:
+                request.session["flash_message"] = (
+                    "Заявка подтверждена. В A-Tracker обновлён существующий актив с таким серийным номером."
+                )
+            else:
+                request.session["flash_message"] = (
+                    "Заявка на добавление техники подтверждена и актив создан в A-Tracker."
+                )
 
     _notify_asset_add_approved(updated)
     _write_audit(
@@ -4641,7 +4845,8 @@ async def admin_asset_add_approve(
             f"category={category_name}; "
             f"asset={asset_name}; "
             f"serial={serial_number}; "
-            f"invent={inventory_number}"
+            f"invent={inventory_number}; "
+            f"chosen_portfolio_id={chosen_portfolio_id}"
         ),
     )
     return RedirectResponse(url=f"/asset-add/{request_id}", status_code=302)
