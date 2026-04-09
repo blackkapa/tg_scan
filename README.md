@@ -36,5 +36,5 @@
 
 - **Куда класть файл:** папка `data/` в проекте или любой путь в `config.py` → `REGISTRY_FILE_PATH`.
 - **Запуск:** `python run_registry_check.py` (или с путём к файлу аргументом).
-- **Exe для Windows (без Python на сервере):** на Windows запустите `build_all.bat` — соберутся **invent_bot.exe** (бот) и **registry_check.exe** (реестр). На сервер копируете exe + config.py + data/. Подробно: [BUILD_EXE.md](BUILD_EXE.md).
-- Подробности по реестру: см. [REGISTRY_README.md](REGISTRY_README.md).
+- **Exe для Windows (без Python на сервере):** на Windows запустите `build_all.bat` — соберутся **invent_bot.exe** (бот) и **registry_check.exe** (реестр). На сервер копируете exe + config.py + data/. Подробно: [docs/BUILD_EXE.md](docs/BUILD_EXE.md).
+- Подробности по реестру: см. [docs/REGISTRY_README.md](docs/REGISTRY_README.md).

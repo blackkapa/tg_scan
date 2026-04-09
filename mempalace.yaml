@@ -1,0 +1,12 @@
+wing: tg_scan
+rooms:
+- name: front_site
+  description: Files from front_site/
+- name: artibut_model
+  description: Files from assets/reference/artibut_model/
+- name: scripts
+  description: Files from scripts/
+- name: data
+  description: Files from data/
+- name: general
+  description: Files that don't fit other rooms

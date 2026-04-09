@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<root>
+  <wizard title="Обработка заявки на добавление техники">
+    <page SQLName="page1" stepNo="1" title="Проверка заявки">
+      <onLoadScript>
+        <![CDATA[
+// Заполняем requestId из контекста, если поле пустое.
+if ((string)wizard.GetValue("requestId") == "" && wizard.context.ContainsKey("ID"))
+{
+    wizard.SetValue("requestId", wizard.context["ID"].ToString());
+}
+if ((string)wizard.GetValue("requestId") == "")
+{
+    wizard.SetValue("requestId", "0");
+}
+if ((string)wizard.GetValue("mode") == "")
+{
+    wizard.SetValue("mode", "1");
+}
+        ]]>
+      </onLoadScript>
+      <block>
+        <element type="text" SQLName="requestId" label="ID заявки" readonly="1"></element>
+        <element type="list" SQLName="mode" label="Режим" readonly="0">
+          <value title="Создать новый актив">1</value>
+          <value title="Использовать существующий актив">2</value>
+        </element>
+      </block>
+      <block>
+        <element type="link" SQLName="lUserId" label="Пользователь актива" linkSQLName="itamEmplDept" required="1"></element>
+        <element type="link" SQLName="lLocationId" label="Локация" linkSQLName="itamLocation"></element>
+      </block>
+      <buttons>
+        <element type="button" SQLName="btnNext1" label="Дальше">
+          <![CDATA[]]>
+        </element>
+      </buttons>
+      <pageTransition toPage="page2" buttonName="btnNext1">
+        <validationScript>
+          <![CDATA[
+if ((string)wizard.GetValue("requestId") == "")
+{
+    throw new Exception("Не заполнен requestId.");
+}
+if ((string)wizard.GetValue("lUserId") == "" || (string)wizard.GetValue("lUserId") == "0")
+{
+    throw new Exception("Выберите пользователя актива.");
+}
+          ]]>
+        </validationScript>
+        <transitionScript>
+          <![CDATA[]]>
+        </transitionScript>
+      </pageTransition>
+    </page>
+
+    <page SQLName="page2" stepNo="2" title="Параметры актива">
+      <block>
+        <element type="text" SQLName="assetName" label="Наименование (для create)"></element>
+        <element type="link" SQLName="categoryId" label="Категория (для create)" linkSQLName="itamCategory"></element>
+      </block>
+      <block>
+        <element type="text" SQLName="serialNo" label="Серийный номер"></element>
+        <element type="text" SQLName="inventNumber" label="Инвентарный номер"></element>
+      </block>
+      <block>
+        <element type="text" SQLName="assetComment" label="Комментарий к активу"></element>
+      </block>
+      <block>
+        <element type="link" SQLName="chosenPortfolioId" label="Существующий актив (для existing)" linkSQLName="itamPortfolio"></element>
+        <element type="checkbox" SQLName="updateUser" label="Обновить пользователя" value="1"></element>
+        <element type="checkbox" SQLName="updateLocation" label="Обновить локацию" value="1"></element>
+      </block>
+      <buttons>
+        <element type="button" SQLName="btnBack2" label="Назад">
+          <![CDATA[]]>
+        </element>
+        <element type="button" SQLName="btnFinish" label="Завершить">
+          <![CDATA[]]>
+        </element>
+      </buttons>
+      <pageTransition toPage="page1" buttonName="btnBack2">
+        <validationScript><![CDATA[]]></validationScript>
+        <transitionScript><![CDATA[]]></transitionScript>
+      </pageTransition>
+      <pageTransition toPage="" buttonName="btnFinish">
+        <validationScript>
+          <![CDATA[
+string mode = (string)wizard.GetValue("mode");
+if (mode == "1")
+{
+    if ((string)wizard.GetValue("assetName") == "")
+        throw new Exception("Для режима create заполните Наименование.");
+}
+else if (mode == "2")
+{
+    if ((string)wizard.GetValue("chosenPortfolioId") == "" || (string)wizard.GetValue("chosenPortfolioId") == "0")
+        throw new Exception("Для режима existing выберите существующий актив.");
+}
+else
+{
+    throw new Exception("Некорректный режим mode.");
+}
+          ]]>
+        </validationScript>
+        <transitionScript>
+          <![CDATA[
+// ВСТАВЬТЕ СОДЕРЖИМОЕ ФАЙЛА ATRACKER_MASTER_AssetAdd_Finalize.cs
+          ]]>
+        </transitionScript>
+      </pageTransition>
+    </page>
+  </wizard>
+</root>

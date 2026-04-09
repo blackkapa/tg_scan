@@ -1505,7 +1505,7 @@ def _notify_asset_add_approved(req: dict) -> None:
             "",
             "Ваша заявка на добавление техники подтверждена администратором.",
             f"Номер заявки: {req_num}",
-            f"Номер в A-Tracker: {req.get('atracker_req_number') or '—'}",
+            f"Номер заявки в ITMS: {req.get('sd_request_number') or '—'}",
             f"Статус: {_asset_add_status_ru(req.get('status'))}",
         ]
     )

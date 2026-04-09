@@ -1,0 +1,363 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<root>
+  <wizard title="Диспетчер заявок на добавление техники" finishAction="redirect to main page">
+    <page SQLName="page1" stepNo="1" title="Обработка заявок">
+      <onLoadScript>
+        <![CDATA[
+string SV(object o) { return o == null ? "" : o.ToString().Trim(); }
+var reqObj = new itamDataObject("itamRequest", "[seType] = 1 AND [seStatus] = 7");
+var rows = reqObj.Rows;
+if (rows == null) rows = new List<Dictionary<string, object>>();
+wizard.SetTableValues("pendingRequests", rows);
+if (SV(wizard.GetValue("requestId")) == "")
+{
+    wizard.SetValue("requestId", "0");
+}
+if (SV(wizard.GetValue("mode")) == "")
+{
+    wizard.SetValue("mode", "1");
+}
+if (SV(wizard.GetValue("updateUser")) == "")
+{
+    wizard.SetValue("updateUser", true);
+}
+if (SV(wizard.GetValue("updateLocation")) == "")
+{
+    wizard.SetValue("updateLocation", true);
+}
+        ]]>
+      </onLoadScript>
+
+      <block>
+        <element type="list"
+                 selecttype="singleselect"
+                 SQLName="pendingRequests"
+                 readonly="0"
+                 label="Заявки на добавление техники (статус 7)"
+                 perpage="50"
+                 showExportButton="true"
+                 showSearch="true"
+                 linkPrefix="~/Home/Data?SQLName=itamRequest&amp;ID=">
+          <column SQLName="ID" label="ID" type="int" />
+          <column SQLName="sReqNumber" label="Номер" type="string" />
+          <column SQLName="sFullName" label="Тема" type="string" />
+          <column SQLName="sPurchaseItem" label="Описание" type="string" />
+          <column SQLName="seStatus" label="Статус" type="int" />
+        </element>
+      </block>
+
+      <block>
+        <element type="string" width="3" SQLName="requestId" label="ID выбранной заявки" readonly="1" value="0"></element>
+        <element type="combobox" width="3" SQLName="mode" label="Режим" value="1">
+          <option value="1" label="Создать новый актив"></option>
+          <option value="2" label="Использовать существующий актив"></option>
+        </element>
+      </block>
+
+      <buttons>
+        <element type="button" SQLName="btnRefresh" label="Обновить список">
+          <![CDATA[
+var reqObj = new itamDataObject("itamRequest", "[seType] = 1 AND [seStatus] = 7");
+var rows = reqObj.Rows;
+if (rows == null) rows = new List<Dictionary<string, object>>();
+wizard.SetTableValues("pendingRequests", rows);
+          ]]>
+        </element>
+        <element type="button" SQLName="btnPick" label="Выбрать заявку">
+          <![CDATA[
+string SV(object o) { return o == null ? "" : o.ToString().Trim(); }
+long LV(object o) { long x; return long.TryParse(SV(o), out x) ? x : 0; }
+string PickPurposeValue(string purpose, string key)
+{
+    if (string.IsNullOrWhiteSpace(purpose)) return "";
+    var lines = purpose.Split('\n');
+    foreach (var ln0 in lines)
+    {
+        var ln = (ln0 ?? "").Trim();
+        if (ln.StartsWith(key + ":", System.StringComparison.OrdinalIgnoreCase))
+            return ln.Substring((key + ":").Length).Trim();
+    }
+    return "";
+}
+var tableValues = wizard.GetTableValues("pendingRequests");
+string selectedIDs = SV(wizard.GetValue("pendingRequests"));
+if (!string.IsNullOrWhiteSpace(selectedIDs))
+{
+    var selectedRowId = selectedIDs.Split(',')[0];
+    var row = tableValues.Find(x => x != null && x.ContainsKey("__rowID") && SV(x["__rowID"]) == selectedRowId);
+    if (row != null && row.ContainsKey("ID") && row["ID"] != null)
+    {
+        var reqId = LV(row["ID"]);
+        wizard.SetValue("requestId", reqId.ToString());
+
+        var reqObj = new itamDataObject("itamRequest", "[ID] = " + reqId);
+        if (reqObj.Rows != null && reqObj.Rows.Count > 0)
+        {
+            var req = reqObj.Rows[0];
+            var purchase = SV(req.ContainsKey("sPurchaseItem") ? req["sPurchaseItem"] : null);
+            var purpose = SV(req.ContainsKey("sPurpose") ? req["sPurpose"] : null);
+
+            string categoryName = "";
+            string assetName = "";
+            if (!string.IsNullOrWhiteSpace(purchase) && purchase.Contains("/"))
+            {
+                var parts = purchase.Split(new[] {'/'}, 2);
+                categoryName = (parts.Length > 0 ? parts[0] : "").Trim();
+                assetName = (parts.Length > 1 ? parts[1] : "").Trim();
+            }
+            else
+            {
+                categoryName = PickPurposeValue(purpose, "Категория");
+                assetName = PickPurposeValue(purpose, "Наименование");
+            }
+
+            var serialNo = PickPurposeValue(purpose, "Серийный");
+            var inventNo = PickPurposeValue(purpose, "Инвентарный");
+            var comment = PickPurposeValue(purpose, "Комментарий");
+
+            wizard.SetValue("assetName", assetName);
+            wizard.SetValue("serialNo", serialNo);
+            wizard.SetValue("inventNumber", inventNo);
+            wizard.SetValue("assetComment", comment);
+            wizard.SetValue("mode", 1);
+
+            // Если сервис сохранил lResolvedUserId — сразу подставим пользователя.
+            if (req.ContainsKey("lResolvedUserId") && req["lResolvedUserId"] != null && LV(req["lResolvedUserId"]) > 0)
+                wizard.SetValue("lUserId", (int)LV(req["lResolvedUserId"]));
+            else if (req.ContainsKey("lRequesterId") && req["lRequesterId"] != null && LV(req["lRequesterId"]) > 0)
+                wizard.SetValue("lUserId", (int)LV(req["lRequesterId"]));
+
+            // Попробуем найти категорию по названию.
+            if (!string.IsNullOrWhiteSpace(categoryName))
+            {
+                var cat = new itamDataObject("itamCategory", "[sFullName] = '" + categoryName.Replace("'", "''") + "'");
+                if (cat.Rows != null && cat.Rows.Count > 0 && cat.Rows[0].ContainsKey("ID") && cat.Rows[0]["ID"] != null)
+                    wizard.SetValue("categoryId", (int)LV(cat.Rows[0]["ID"]));
+            }
+
+            // Подгрузим прикрепленные документы заявки.
+            // В разных инсталляциях могут отличаться поля/tableId, поэтому делаем фолбэки.
+            var docs = new List<Dictionary<string, object>>();
+            try
+            {
+                var d1 = new itamDataObject("itamDocument", "[iContextId] = " + reqId + " AND [lSystemTableId] = 7");
+                if (d1.Rows != null && d1.Rows.Count > 0) docs = d1.Rows;
+            }
+            catch { }
+            if (docs == null || docs.Count == 0)
+            {
+                try
+                {
+                    var d2 = new itamDataObject("itamDocument", "[iContextId] = " + reqId);
+                    if (d2.Rows != null && d2.Rows.Count > 0) docs = d2.Rows;
+                }
+                catch { }
+            }
+            if (docs == null) docs = new List<Dictionary<string, object>>();
+            wizard.SetTableValues("requestDocs", docs);
+            wizard.RedrawWidget("requestPhotosPreview");
+        }
+    }
+}
+          ]]>
+        </element>
+        <element type="button" SQLName="btnFinish" label="Завершить">
+          <![CDATA[
+try
+{
+    string S(object o) { return o == null ? "" : o.ToString().Trim(); }
+    long L(object o) { long x; return long.TryParse(S(o), out x) ? x : 0; }
+    bool B(object o, bool defVal)
+    {
+        var s = S(o).ToLower();
+        if (s == "1" || s == "true" || s == "yes" || s == "on") return true;
+        if (s == "0" || s == "false" || s == "no" || s == "off") return false;
+        return defVal;
+    }
+
+    long requestId = 0; try { requestId = L(wizard.GetValue("requestId")); } catch { requestId = 0; }
+    string modeRaw = ""; try { modeRaw = S(wizard.GetValue("mode")); } catch { modeRaw = ""; }
+    if (string.IsNullOrWhiteSpace(modeRaw)) modeRaw = "1";
+    string mode = (modeRaw == "2") ? "existing" : "create";
+
+    long lUserId = 0; try { lUserId = L(wizard.GetValue("lUserId")); } catch { lUserId = 0; }
+    long lLocationId = 0; try { lLocationId = L(wizard.GetValue("lLocationId")); } catch { lLocationId = 0; }
+    string assetName = ""; try { assetName = S(wizard.GetValue("assetName")); } catch { assetName = ""; }
+    long categoryId = 0; try { categoryId = L(wizard.GetValue("categoryId")); } catch { categoryId = 0; }
+    string serialNo = ""; try { serialNo = S(wizard.GetValue("serialNo")); } catch { serialNo = ""; }
+    string inventNumber = ""; try { inventNumber = S(wizard.GetValue("inventNumber")); } catch { inventNumber = ""; }
+    string assetComment = ""; try { assetComment = S(wizard.GetValue("assetComment")); } catch { assetComment = ""; }
+    long chosenPortfolioId = 0; try { chosenPortfolioId = L(wizard.GetValue("chosenPortfolioId")); } catch { chosenPortfolioId = 0; }
+    bool updateUser = true; try { updateUser = B(wizard.GetValue("updateUser"), true); } catch { updateUser = true; }
+    bool updateLocation = true; try { updateLocation = B(wizard.GetValue("updateLocation"), true); } catch { updateLocation = true; }
+
+    if (requestId <= 0) throw new Exception("Не передан requestId (ID заявки).");
+    if (lUserId <= 0) throw new Exception("Не выбран пользователь актива (lUserId).");
+    if (!(modeRaw == "1" || modeRaw == "2")) throw new Exception("Некорректный mode. Ожидается 1/2.");
+
+    var reqObj = new itamDataObject("itamRequest", "[ID] = " + requestId);
+    if (reqObj.Rows == null || reqObj.Rows.Count == 0)
+        throw new Exception("Заявка itamRequest не найдена: ID=" + requestId);
+
+    var req = reqObj.Rows[0];
+    var reqStatus = (int)L(req.ContainsKey("seStatus") ? req["seStatus"] : null);
+    if (reqStatus != 7)
+        throw new Exception("Заявка не в статусе 7. Текущий статус: " + reqStatus);
+
+    string reqNumber = req.ContainsKey("sReqNumber") && req["sReqNumber"] != null
+        ? req["sReqNumber"].ToString().Trim()
+        : "";
+    string reqTag = "[REQ] " + reqNumber;
+
+    if (mode == "create")
+    {
+        if (string.IsNullOrWhiteSpace(assetName))
+            throw new Exception("Для режима create заполните assetName.");
+
+        var p = new itamDataObject("itamPortfolio", 1);
+        p.Rows[0]["sFullName"] = assetName;
+        p.Rows[0]["lUserId"] = (int)lUserId;
+        if (lLocationId > 0)
+        {
+            if (p.Rows[0].ContainsKey("lt_lLocationId")) p.Rows[0]["lt_lLocationId"] = (int)lLocationId;
+            else if (p.Rows[0].ContainsKey("lLocationId")) p.Rows[0]["lLocationId"] = (int)lLocationId;
+            else p.Rows[0]["lt_lLocationId"] = (int)lLocationId;
+        }
+        if (categoryId > 0)
+        {
+            if (p.Rows[0].ContainsKey("lt_lCategoryId")) p.Rows[0]["lt_lCategoryId"] = (int)categoryId;
+            else if (p.Rows[0].ContainsKey("lCategoryId")) p.Rows[0]["lCategoryId"] = (int)categoryId;
+        }
+        if (!string.IsNullOrWhiteSpace(serialNo)) p.Rows[0]["sSerialNo"] = serialNo;
+        if (!string.IsNullOrWhiteSpace(inventNumber))
+        {
+            if (p.Rows[0].ContainsKey("sInventNumber")) p.Rows[0]["sInventNumber"] = inventNumber;
+            else p.Rows[0]["sInventoryNo"] = inventNumber;
+        }
+
+        string c = assetComment;
+        if (string.IsNullOrWhiteSpace(c)) c = "";
+        if (!string.IsNullOrWhiteSpace(reqNumber) && c.IndexOf(reqTag, System.StringComparison.OrdinalIgnoreCase) < 0)
+            c = string.IsNullOrWhiteSpace(c) ? reqTag : (c + "\n" + reqTag);
+        if (!string.IsNullOrWhiteSpace(c)) p.Rows[0]["sComment"] = c;
+        p.Insert();
+    }
+    else
+    {
+        if (chosenPortfolioId <= 0)
+            throw new Exception("Для режима existing выберите chosenPortfolioId.");
+
+        var p = new itamDataObject("itamPortfolio", "[ID] = " + chosenPortfolioId);
+        if (p.Rows == null || p.Rows.Count == 0)
+            throw new Exception("Карточка актива не найдена: ID=" + chosenPortfolioId);
+
+        var row = p.Rows[0];
+        if (updateUser) row["lUserId"] = (int)lUserId;
+        if (updateLocation && lLocationId > 0)
+        {
+            if (row.ContainsKey("lt_lLocationId")) row["lt_lLocationId"] = (int)lLocationId;
+            else if (row.ContainsKey("lLocationId")) row["lLocationId"] = (int)lLocationId;
+            else row["lt_lLocationId"] = (int)lLocationId;
+        }
+
+        string oldComment = row.ContainsKey("sComment") && row["sComment"] != null ? row["sComment"].ToString() : "";
+        if (!string.IsNullOrWhiteSpace(assetComment))
+            oldComment = string.IsNullOrWhiteSpace(oldComment) ? assetComment : (oldComment + "\n" + assetComment);
+        if (!string.IsNullOrWhiteSpace(reqNumber) && oldComment.IndexOf(reqTag, System.StringComparison.OrdinalIgnoreCase) < 0)
+            oldComment = string.IsNullOrWhiteSpace(oldComment) ? reqTag : (oldComment + "\n" + reqTag);
+        row["sComment"] = oldComment;
+        p.Update();
+    }
+
+    req["seStatus"] = 9;
+    reqObj.Update();
+}
+catch (System.Exception ex)
+{
+    throw new Exception(ex.Message);
+}
+          ]]>
+        </element>
+      </buttons>
+
+      <block>
+        <element type="link" width="3" SQLName="lUserId" label="Пользователь актива" link-table="itamEmplDept" value=""></element>
+        <element type="link" width="3" SQLName="lLocationId" label="Локация" link-table="itamLocation" value=""></element>
+      </block>
+
+      <block>
+        <element type="string" width="6" SQLName="assetName" label="Наименование (для create)" value=""></element>
+        <element type="link" width="6" SQLName="categoryId" label="Категория (для create)" link-table="itamCategory" value=""></element>
+      </block>
+
+      <block>
+        <element type="list"
+                 selecttype="none"
+                 SQLName="requestDocs"
+                 readonly="1"
+                 label="Документы заявки"
+                 perpage="10"
+                 showSearch="true"
+                 linkPrefix="~/Home/Data?SQLName=itamDocument&amp;ID=">
+          <column SQLName="ID" label="ID" type="int" />
+          <column SQLName="sFullName" label="Файл" type="string" />
+          <column SQLName="dtCreationDate" label="Дата" type="date" />
+        </element>
+      </block>
+
+      <block>
+        <element type="widget" width="12" SQLName="requestPhotosPreview" label="" value="">
+          <![CDATA[
+try
+{
+    var docs = wizard.GetTableValues("requestDocs");
+    if (docs == null || docs.Count == 0)
+    {
+        RetVal = "<div class='text-muted'>Фото не найдены в документах заявки.</div>";
+    }
+    else
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div style='display:flex; flex-wrap:wrap; gap:10px;'>");
+        foreach (var d in docs)
+        {
+            var id = d.ContainsKey("ID") && d["ID"] != null ? d["ID"].ToString() : "";
+            var name = d.ContainsKey("sFullName") && d["sFullName"] != null ? d["sFullName"].ToString() : ("Документ " + id);
+            if (string.IsNullOrWhiteSpace(id)) continue;
+            var lname = (name ?? "").ToLower();
+            var isImg = lname.EndsWith(".jpg") || lname.EndsWith(".jpeg") || lname.EndsWith(".png") || lname.EndsWith(".webp") || lname.EndsWith(".gif");
+            if (!isImg) continue;
+            sb.Append("<a target='_blank' href='~/Home/Data?SQLName=itamDocument&ID=" + id + "' style='text-decoration:none;'>");
+            sb.Append("<div style='width:180px; border:1px solid #ddd; border-radius:8px; padding:6px;'>");
+            sb.Append("<div style='font-size:12px; color:#555; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;' title='" + System.Net.WebUtility.HtmlEncode(name) + "'>");
+            sb.Append(System.Net.WebUtility.HtmlEncode(name));
+            sb.Append("</div>");
+            sb.Append("<div style='margin-top:6px; font-size:11px; color:#888;'>Открыть документ</div>");
+            sb.Append("</div></a>");
+        }
+        sb.Append("</div>");
+        RetVal = sb.ToString();
+    }
+}
+catch (System.Exception ex)
+{
+    RetVal = "<div class='text-danger'>Ошибка предпросмотра: " + System.Net.WebUtility.HtmlEncode(ex.Message) + "</div>";
+}
+          ]]>
+        </element>
+      </block>
+
+      <block>
+        <element type="string" width="4" SQLName="serialNo" label="Серийный номер" value=""></element>
+        <element type="string" width="4" SQLName="inventNumber" label="Инвентарный номер" value=""></element>
+        <element type="string" width="4" SQLName="assetComment" label="Комментарий к активу" value=""></element>
+      </block>
+
+      <block>
+        <element type="link" width="6" SQLName="chosenPortfolioId" label="Существующий актив (для existing)" link-table="itamPortfolio" value=""></element>
+        <element type="bool" width="3" SQLName="updateUser" label="Обновить пользователя" value="true"></element>
+        <element type="bool" width="3" SQLName="updateLocation" label="Обновить локацию" value="true"></element>
+      </block>
+    </page>
+  </wizard>
+</root>
