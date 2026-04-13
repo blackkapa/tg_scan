@@ -52,9 +52,63 @@
                 <span>Фото техники (1-10, JPG/PNG/WEBP) *</span>
                 <input class="auth-form__input" type="file" name="files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required>
             </label>
+            <div class="asset-photo-examples">
+                <span class="asset-photo-examples__title">Примеры фото (как лучше снимать):</span>
+                <div class="asset-photo-examples__grid">
+                    <button type="button" class="asset-photo-examples__item" data-preview-src="/asset-add/photo-example/laptop-bottom" data-preview-alt="Пример: общий вид нижней части ноутбука с наклейкой">
+                        <img src="/asset-add/photo-example/laptop-bottom" alt="Пример: общий вид нижней части ноутбука с наклейкой">
+                        <span>Общий вид техники</span>
+                    </button>
+                    <button type="button" class="asset-photo-examples__item" data-preview-src="/asset-add/photo-example/laptop-label-close" data-preview-alt="Пример: наклейка с QR и серийным номером крупным планом">
+                        <img src="/asset-add/photo-example/laptop-label-close" alt="Пример: наклейка с QR и серийным номером крупным планом">
+                        <span>Наклейка крупно</span>
+                    </button>
+                    <button type="button" class="asset-photo-examples__item" data-preview-src="/asset-add/photo-example/monitor-label" data-preview-alt="Пример: шильдик монитора с серийным номером">
+                        <img src="/asset-add/photo-example/monitor-label" alt="Пример: шильдик монитора с серийным номером">
+                        <span>Шильдик / модель</span>
+                    </button>
+                </div>
+            </div>
+            <div id="asset-photo-preview-modal" class="asset-photo-preview-modal" hidden>
+                <div class="asset-photo-preview-modal__backdrop" data-preview-close></div>
+                <div class="asset-photo-preview-modal__content" role="dialog" aria-modal="true" aria-label="Просмотр примера фото">
+                    <button type="button" class="asset-photo-preview-modal__close" data-preview-close aria-label="Закрыть">×</button>
+                    <img id="asset-photo-preview-image" src="" alt="">
+                </div>
+            </div>
             <span class="auth-form__hint">Максимум 10 фото, размер каждого до 10 МБ.</span>
             <button type="submit" class="auth-form__button">Отправить заявку</button>
         </form>
     </div>
 </section>
+<script>
+  (() => {
+    const modal = document.getElementById("asset-photo-preview-modal");
+    const image = document.getElementById("asset-photo-preview-image");
+    if (!modal || !image) return;
+
+    const openPreview = (src, alt) => {
+      image.src = src;
+      image.alt = alt || "Пример фото техники";
+      modal.hidden = false;
+      document.body.style.overflow = "hidden";
+    };
+
+    const closePreview = () => {
+      modal.hidden = true;
+      image.src = "";
+      document.body.style.overflow = "";
+    };
+
+    document.querySelectorAll(".asset-photo-examples__item").forEach((btn) => {
+      btn.addEventListener("click", () => openPreview(btn.dataset.previewSrc, btn.dataset.previewAlt));
+    });
+    modal.querySelectorAll("[data-preview-close]").forEach((el) => {
+      el.addEventListener("click", closePreview);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (!modal.hidden && e.key === "Escape") closePreview();
+    });
+  })();
+</script>
 {% endblock %}

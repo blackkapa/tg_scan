@@ -79,6 +79,11 @@ BASE_DIR = Path(__file__).resolve().parent
 AUDIT_LOG_PATH = BASE_DIR / "logs" / "audit.log"
 TRANSFER_UPLOADS_DIR = BASE_DIR / "uploads" / "transfers"
 ASSET_ADD_UPLOADS_DIR = BASE_DIR / "uploads" / "asset_add_requests"
+ASSET_ADD_PHOTO_EXAMPLES: dict[str, Path] = {
+    "laptop-bottom": BASE_DIR / "IMG_5854.jpeg",
+    "laptop-label-close": BASE_DIR / "IMG_5855.jpeg",
+    "monitor-label": BASE_DIR / "IMG_5857.jpeg",
+}
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Инвентаризация техники")
@@ -3907,6 +3912,28 @@ async def asset_add_photo_file(request: Request, request_id: str, photo_idx: int
         p,
         media_type=media,
         filename=ph.get("name") or p.name,
+        content_disposition_type="inline",
+    )
+
+
+@app.get("/asset-add/photo-example/{example_key}")
+async def asset_add_photo_example(example_key: str):
+    """Примеры правильных фото техники на форме добавления."""
+    p = ASSET_ADD_PHOTO_EXAMPLES.get((example_key or "").strip())
+    if not p or not p.is_file():
+        return Response(status_code=404)
+    suffix = p.suffix.lower()
+    media = "application/octet-stream"
+    if suffix in (".jpg", ".jpeg"):
+        media = "image/jpeg"
+    elif suffix == ".png":
+        media = "image/png"
+    elif suffix == ".webp":
+        media = "image/webp"
+    return FileResponse(
+        p,
+        media_type=media,
+        filename=p.name,
         content_disposition_type="inline",
     )
 
