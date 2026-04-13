@@ -80,6 +80,18 @@
     cursor: pointer;
     line-height: 1;
   }
+  .asset-photo-warning {
+    display: block;
+    margin-top: 0.15rem;
+    color: #dc2626;
+    font-size: 0.82rem;
+    font-weight: 700;
+    animation: assetWarningBlink 1s ease-in-out infinite;
+  }
+  @keyframes assetWarningBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
   @media (max-width: 600px) {
     .asset-photo-examples__grid { grid-template-columns: 1fr; }
   }
@@ -127,12 +139,13 @@
             </label>
             <label class="auth-form__label">
                 <span>Комментарий</span>
-                <input class="auth-form__input" type="text" name="comment" placeholder="Например, где обнаружена техника или назначение">
+                <input class="auth-form__input" type="text" name="comment" placeholder="Например: в каком состоянии техника, где ее нашли и кому она принадлежала раньше. Укажите любую важную, по вашему мнению, информацию.">
             </label>
             <label class="auth-form__label">
                 <span>Фото техники (1-10, JPG/PNG/WEBP) *</span>
                 <input class="auth-form__input" type="file" name="files" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple required>
             </label>
+            <span class="asset-photo-warning">Важно: перед отправкой убедитесь, что на фото четко различимы цифры и буквы на шильдике.</span>
             <div class="asset-photo-examples">
                 <span class="asset-photo-examples__title">Примеры фото (как лучше снимать):</span>
                 <div class="asset-photo-examples__grid">
