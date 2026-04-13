@@ -6,21 +6,31 @@
 <section class="hero">
     <div class="hero__card settings-card">
         <h1 class="hero__title hero__title--center">Заявки</h1>
-        <p class="page-lead">Здесь заявки на перемещение техники, где вы указаны как отправитель или получатель, и заявки на добавление техники. Откройте карточку — этапы, действия и накладная для печати.</p>
+        <p class="page-lead">Здесь заявки на перемещение техники, где вы указаны как отправитель или получатель, заявки на добавление техники и сообщения о несоответствии. Откройте карточку — этапы, действия и накладная для печати (где применимо).</p>
         {% if message %}
             <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
         {% endif %}
         {% if not items %}
             <div class="empty-state">
-                <p>Пока нет заявок на перемещение техники.</p>
-                <p class="empty-state__action"><a href="/assets" class="assets-list__link">Перейти к моим активам</a> — выберите технику и оформите заявку на перемещение.</p>
+                <p>Пока нет заявок.</p>
+                <p class="empty-state__action"><a href="/assets" class="assets-list__link">Перейти к моим активам</a> — оформите перемещение, добавление техники или сообщите о несоответствии (если доступно в настройках).</p>
             </div>
         {% else %}
             <div class="assets-list">
                 {% for t in items %}
                     <div class="assets-list__item">
                         <div class="assets-list__main">
-                            {% if t.kind == "asset_add" %}
+                            {% if t.kind == "discrepancy" %}
+                                <div class="assets-list__name">
+                                    Несоответствие {{ t.request_number or t.id[:8] }}
+                                    <span class="status-badge status-badge--discrepancy-{{ t.status }}" style="margin-left: 0.35rem;">{{ t.status | discrepancy_status_ru }}</span>
+                                </div>
+                                <div class="assets-list__meta">
+                                    <span>Техника: {{ t.asset_name or "—" }}</span><br>
+                                    <span>Причина: {{ t.reason_text or t.reason_code }}</span><br>
+                                    <span>Создана: {{ t.created_at or "—" }}</span>
+                                </div>
+                            {% elif t.kind == "asset_add" %}
                                 <div class="assets-list__name">
                                     Заявка на добавление техники {{ t.request_number or t.id[:8] }}
                                     <span class="status-badge status-badge--asset-add-{{ t.status }}" style="margin-left: 0.35rem;">{{ t.status | asset_add_status_ru }}</span>
@@ -46,7 +56,9 @@
                             {% endif %}
                         </div>
                         <div class="assets-list__actions">
-                            {% if t.kind == "asset_add" %}
+                            {% if t.kind == "discrepancy" %}
+                                <a class="assets-list__link-button" href="/discrepancy/{{ t.id }}">Открыть</a>
+                            {% elif t.kind == "asset_add" %}
                                 <a class="assets-list__link-button" href="/asset-add/{{ t.id }}">Открыть</a>
                             {% else %}
                                 <a class="assets-list__link-button" href="/transfers/{{ t.id }}">Открыть</a>
