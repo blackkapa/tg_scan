@@ -16,6 +16,5 @@ echo "Устанавливаю зависимости..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo "Запускаю бота..."
-python bot.py
-
+echo "Запуск веб-приложения (Ctrl+C для остановки)..."
+python -m uvicorn front_site.app:app --host 127.0.0.1 --port 8000 --reload

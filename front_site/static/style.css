@@ -59,6 +59,22 @@ html, body {
     font-weight: 600;
 }
 
+.site-header__badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.05rem;
+    height: 1.05rem;
+    margin-left: 0.38rem;
+    padding: 0 0.3rem;
+    border-radius: 999px;
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
 .site-header__logo-mark {
     width: 28px;
     height: 28px;
@@ -685,6 +701,23 @@ html, body {
     background: #d1fae5;
     color: #065f46;
     border: 1px solid #6ee7b7;
+}
+
+.status-badge--discrepancy-sent {
+    background: #dbeafe;
+    color: #1e3a8a;
+}
+.status-badge--discrepancy-in_review {
+    background: #fef3c7;
+    color: #92400e;
+}
+.status-badge--discrepancy-closed {
+    background: #d1fae5;
+    color: #065f46;
+}
+.status-badge--discrepancy-rejected {
+    background: #fee2e2;
+    color: #991b1b;
 }
 
 .status-badge--asset-add-rejected {

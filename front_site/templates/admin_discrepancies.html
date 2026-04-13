@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Несоответствия (админ){% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title hero__title--center">Несоответствия (админ)</h1>
+        <p class="page-lead">Заявки о несоответствии техники. Откройте карточку — смена статуса и комментарии там же.</p>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        {% if not requests %}
+            <div class="empty-state"><p>Заявок пока нет.</p></div>
+        {% else %}
+            <div class="assets-list">
+                {% for r in requests %}
+                    <div class="assets-list__item">
+                        <div class="assets-list__main">
+                            <div class="assets-list__name">
+                                {{ r.request_number or r.id[:8] }} · {{ r.asset_name or "без названия" }}
+                                <span class="status-badge status-badge--discrepancy-{{ r.status }}" style="margin-left: 0.35rem;">{{ r.status | discrepancy_status_ru }}</span>
+                            </div>
+                            <div class="assets-list__meta">
+                                <span>{{ r.requester_fio }} ({{ r.requester_email }})</span><br>
+                                <span>Причина: {{ r.reason_text or r.reason_code }}</span><br>
+                                <span>Создана: {{ r.created_at or "—" }}</span>
+                            </div>
+                        </div>
+                        <div class="assets-list__actions">
+                            <a class="assets-list__link-button" href="/discrepancy/{{ r.id }}">Открыть</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        <p style="margin-top: 1rem;"><a href="/admin" class="assets-list__link">← Админ</a></p>
+    </div>
+</section>
+{% endblock %}

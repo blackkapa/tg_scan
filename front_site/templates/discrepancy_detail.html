@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title hero__title--center">Несоответствие техники</h1>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        <p class="page-lead">
+            Заявка <strong>{{ req.request_number or req.id[:8] }}</strong>
+            <span class="status-badge status-badge--discrepancy-{{ req.status }}" style="margin-left: 0.35rem;">{{ req.status | discrepancy_status_ru }}</span>
+        </p>
+
+        <dl class="discrepancy-dl" style="margin: 1rem 0; line-height: 1.6;">
+            <dt>Инициатор</dt><dd>{{ req.requester_fio }} ({{ req.requester_email }})</dd>
+            <dt>Техника</dt><dd>{{ req.asset_name }} (ID {{ req.asset_id }})</dd>
+            <dt>Инв. №</dt><dd>{{ req.inventory_number or "—" }}</dd>
+            <dt>Серийный №</dt><dd>{{ req.serial_number or "—" }}</dd>
+            <dt>Причина</dt><dd>{{ req.reason_text or req.reason_code }}</dd>
+            {% if req.comment %}
+            <dt>Комментарий</dt><dd>{{ req.comment }}</dd>
+            {% endif %}
+            <dt>Создана</dt><dd>{{ req.created_at or "—" }}</dd>
+            {% if req.updated_at and req.updated_at != req.created_at %}
+            <dt>Обновлена</dt><dd>{{ req.updated_at }}</dd>
+            {% endif %}
+            {% if req.admin_note %}
+            <dt>Комментарий администратора</dt><dd>{{ req.admin_note }}</dd>
+            {% endif %}
+            {% if req.notify_admin_error %}
+            <dt style="color: #b45309;">Уведомление админам</dt><dd style="color: #b45309;">{{ req.notify_admin_error }}</dd>
+            {% endif %}
+        </dl>
+
+        {% set photos = req.photos or [] %}
+        {% if photos %}
+        <h2 class="settings-subtitle" style="margin-top: 1rem;">Вложения</h2>
+        <div class="discrepancy-photos" style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
+            {% for ph in photos %}
+                <a href="/discrepancy/{{ req.id }}/photo/{{ loop.index0 }}" target="_blank" rel="noopener" class="assets-list__link">
+                    {{ ph.name or ("Фото " ~ loop.index) }}
+                </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if is_admin %}
+        <h2 class="settings-subtitle" style="margin-top: 1.25rem;">Действия администратора</h2>
+        {% set st = req.status %}
+        {% if st == "sent" %}
+        <form method="post" action="/admin/discrepancy/{{ req.id }}/in-review" style="margin-bottom: 0.75rem;">
+            <button type="submit" class="auth-form__button">Взять в работу</button>
+        </form>
+        {% endif %}
+        {% if st == "sent" or st == "in_review" %}
+        <form method="post" action="/admin/discrepancy/{{ req.id }}/close" class="auth-form" style="margin-bottom: 0.75rem;">
+            <label class="auth-form__label">
+                <span class="auth-form__label-text">Комментарий при закрытии</span>
+                <textarea class="auth-form__input" name="admin_note" rows="2" placeholder="Необязательно">{{ req.admin_note or "" }}</textarea>
+            </label>
+            <button type="submit" class="auth-form__button">Закрыть заявку</button>
+        </form>
+        <form method="post" action="/admin/discrepancy/{{ req.id }}/reject" class="auth-form">
+            <label class="auth-form__label">
+                <span class="auth-form__label-text">Текст при отклонении (обязательно)</span>
+                <textarea class="auth-form__input" name="admin_note" rows="2" required placeholder="Укажите причину отклонения"></textarea>
+            </label>
+            <button type="submit" class="auth-form__button" style="background: #7f1d1d;">Отклонить</button>
+        </form>
+        {% endif %}
+        <p style="margin-top: 1rem;"><a href="/admin/discrepancies" class="assets-list__link">Все заявки несоответствий</a></p>
+        {% endif %}
+
+        <p style="margin-top: 1rem;"><a href="/transfers" class="assets-list__link">← К списку заявок</a></p>
+    </div>
+</section>
+{% endblock %}

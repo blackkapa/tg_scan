@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Добавление техники (админ){% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title hero__title--center">Заявки на добавление техники (админ)</h1>
+        <p class="page-lead">Очередь заявок на добавление техники. Откройте карточку заявки для проверки данных, фото и подтверждения/отклонения.</p>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        {% if asset_add_button_enabled %}
+        {% if not asset_add_requests %}
+            <div class="empty-state"><p>Нет заявок на добавление техники.</p></div>
+        {% else %}
+            <div class="assets-list">
+                {% for r in asset_add_requests %}
+                    <div class="assets-list__item">
+                        <div class="assets-list__main">
+                            <div class="assets-list__name">
+                                Заявка {{ r.request_number or r.id[:8] }} · {{ r.asset_name or "без названия" }}
+                                <span class="status-badge status-badge--asset-add-{{ r.status }}" style="margin-left: 0.35rem;">{{ r.status | asset_add_status_ru }}</span>
+                            </div>
+                            <div class="assets-list__meta">
+                                <span>Инициатор: {{ r.requester_fio }} ({{ r.requester_email }})</span><br>
+                                <span>Категория: {{ r.category_name or "—" }}</span><br>
+                                <span>Фото: {{ (r.photos or [])|length }}</span>
+                            </div>
+                        </div>
+                        <div class="assets-list__actions">
+                            <a class="assets-list__link-button" href="/asset-add/{{ r.id }}">Открыть</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% else %}
+            <div class="empty-state"><p>Раздел добавления техники отключён в настройках сайта.</p></div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}Сообщить о несоответствии{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <div class="hero__card settings-card">
+        <h1 class="hero__title hero__title--center">Сообщить о несоответствии</h1>
+        {% if message %}
+            <p class="auth-form__message" style="margin-top: 0.75rem;">{{ message }}</p>
+        {% endif %}
+        <p class="page-lead">Выберите технику из списка закреплённой за вами, укажите причину и при необходимости прикрепите фото. Заявка появится в разделе «Заявки».</p>
+
+        <form method="post" action="/discrepancy/start" enctype="multipart/form-data" class="auth-form transfer-start-form transfer-start-form--wide" id="discrepancy-form">
+            <label class="auth-form__label">
+                <span class="auth-form__label-text">Техника</span>
+                <select class="auth-form__input" name="asset_id" required aria-label="Техника">
+                    <option value="">Выберите позицию</option>
+                    {% for a in assets_options %}
+                        <option value="{{ a.id }}" {% if preselect_asset_id is not none and a.id == preselect_asset_id %}selected{% endif %}>
+                            {{ a.name }} · инв. {{ a.invent }} · с/н {{ a.serial }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <fieldset class="auth-form__fieldset" style="border: none; padding: 0; margin: 0;">
+                <legend class="auth-form__label-text" style="margin-bottom: 0.35rem;">Причина</legend>
+                {% for code in ["not_mine", "other_emp", "lost", "other"] %}
+                    <label class="auth-form__radio-line" style="display: block; margin-bottom: 0.35rem;">
+                        <input type="radio" name="reason_code" value="{{ code }}" required
+                               {% if loop.first %}checked{% endif %}
+                               class="discrepancy-reason-radio">
+                        {{ reason_labels.get(code, code) }}
+                    </label>
+                {% endfor %}
+            </fieldset>
+
+            <label class="auth-form__label" id="reason-other-wrap" style="display: none;">
+                <span class="auth-form__label-text">Уточнение (для «Другое»)</span>
+                <textarea class="auth-form__input" name="reason_other" rows="2" placeholder="Кратко опишите ситуацию"></textarea>
+            </label>
+
+            <label class="auth-form__label">
+                <span class="auth-form__label-text">Комментарий (необязательно)</span>
+                <textarea class="auth-form__input" name="comment" rows="3" placeholder="Дополнительная информация для администратора"></textarea>
+            </label>
+
+            <label class="auth-form__label">
+                <span class="auth-form__label-text">Фото (до 10 файлов, JPG, PNG, WEBP, до 10 МБ каждый)</span>
+                <input type="file" name="files" accept="image/jpeg,image/png,image/webp" multiple class="auth-form__input">
+            </label>
+
+            <button type="submit" class="auth-form__button">Отправить заявку</button>
+        </form>
+        <p style="margin-top: 1rem;"><a href="/assets" class="assets-list__link">← Назад к моим активам</a></p>
+    </div>
+</section>
+<script>
+(function () {
+    var radios = document.querySelectorAll(".discrepancy-reason-radio");
+    var wrap = document.getElementById("reason-other-wrap");
+    function sync() {
+        var other = false;
+        radios.forEach(function (r) {
+            if (r.value === "other" && r.checked) other = true;
+        });
+        if (wrap) wrap.style.display = other ? "block" : "none";
+    }
+    radios.forEach(function (r) { r.addEventListener("change", sync); });
+    sync();
+})();
+</script>
+{% endblock %}

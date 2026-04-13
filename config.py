@@ -56,12 +56,6 @@ ATRACKER_EMPLOYEES_LIST_SERVICE_ID = 5
 ATRACKER_EMPLOYEE_UPDATE_SERVICE_ID = 6
 ATRACKER_EMPLOYEE_ADD_SERVICE_ID = 7  # Создание нового сотрудника (если нет в A-Tracker)
 
-# --- Пути ---
-AD_EXPORT_PATH = _get("paths", "ad_export", "ad_export.json")
-REGISTRY_FILE_PATH = _get("paths", "registry_file", "data/")
-REGISTRY_STATE_FILE = _get("paths", "registry_state", "data/registry_processed.json")
-REGISTRY_PROCESSED_DIR = _get("paths", "registry_processed_dir", "data/processed")
-
 # --- Email / SMTP ---
 EMAIL_DOMAIN_ALLOWED = _get("email", "domain_allowed", "asg.ru")
 SMTP_HOST = _get("smtp", "host", "smtp.yandex.ru")
@@ -117,16 +111,19 @@ WEB_ASSET_ADD_BUTTON_ENABLED = _getbool("web", "asset_add_button_enabled", True)
 # Заявки на перемещение техники: чекбоксы на /assets, /transfer/start, список transfer в «Заявках» (false — отключить контур)
 WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
 
+# «Сообщить о несоответствии»: форма, список в «Заявках», /admin/discrepancies (false — отключить контур)
+WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
 
 def reload_web_flags_from_disk() -> None:
     """Перечитать config.ini и обновить переменные [web] в памяти (после /settings/save без обязательного рестарта)."""
-    global _cfg, WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED
+    global _cfg, WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED, WEB_DISCREPANCY_ENABLED
     _cfg = ConfigParser()
     if os.path.isfile(_CONFIG_PATH):
         _cfg.read(_CONFIG_PATH, encoding="utf-8")
     WEB_PUBLIC_BASE_URL = _get("web", "public_base_url", "")
     WEB_ASSET_ADD_BUTTON_ENABLED = _getbool("web", "asset_add_button_enabled", True)
     WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
+    WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
 
 
 # ID кастомного сервиса A-Tracker: утверждение перемещения (как мастер OneLineTransit2). 0 — не вызывать.
@@ -148,32 +145,3 @@ ATRACKER_REQUEST_ATTACH_SERVICE_ID = _getint("atracker", "request_attach_service
 # 0 — проверка дублей по серийнику отключена.
 ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID = _getint("atracker", "asset_find_by_serial_service_id", 0)
 
-# --- Telegram ---
-TELEGRAM_BOT_TOKEN = _get("telegram", "bot_token", "")
-
-def _parse_admin_ids() -> frozenset:
-    s = _get("telegram", "admin_ids", "")
-    if not s:
-        return frozenset()
-    ids = []
-    for x in s.replace(",", " ").split():
-        try:
-            ids.append(int(x.strip()))
-        except ValueError:
-            pass
-    return frozenset(ids)
-
-ADMIN_TELEGRAM_IDS = _parse_admin_ids()
-
-REPORT_GROUP_ID = _getint("telegram", "report_group_id", -1003761721933)
-
-def _get_registry_notify_group_id():
-    s = _get("telegram", "registry_notify_group_id", "")
-    if not s:
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        return None
-
-REGISTRY_NOTIFY_GROUP_ID = _get_registry_notify_group_id()

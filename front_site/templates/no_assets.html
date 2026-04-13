@@ -12,6 +12,44 @@
         <p class="hero__text" style="margin-top: 0.75rem;">
             Если вы уверены, что это не так, свяжитесь с системотехником или ответственным за инвентаризацию.
         </p>
+        <div class="assets-qr-block" style="margin-top: 1rem;">
+            {% if asset_add_button_enabled %}
+            <a href="/asset-add/start"
+               id="asset-add-button-no-assets"
+               class="assets-list__link-button assets-list__link-button--full"
+               title="Создать заявку на добавление новой техники">
+                Добавить технику
+            </a>
+            {% endif %}
+            <form method="post"
+                  action="/scan-qr"
+                  enctype="multipart/form-data"
+                  id="scan-qr-form-no-assets"
+                  style="margin-top: {% if asset_add_button_enabled %}0.75rem{% else %}0{% endif %};">
+                <input type="file"
+                       name="file"
+                       accept="image/*"
+                       style="display:none;"
+                       id="scan-qr-input-no-assets"
+                       onchange="
+                           if (this.files.length) {
+                               const btn = document.getElementById('scan-qr-btn-no-assets');
+                               if (btn) {
+                                   btn.disabled = true;
+                                   btn.textContent = 'Сканируем...';
+                               }
+                               document.getElementById('scan-qr-form-no-assets').submit();
+                           }
+                       ">
+                <button type="button"
+                        id="scan-qr-btn-no-assets"
+                        class="assets-list__link-button assets-list__link-button--full"
+                        title="Определить по QR-коду, за кем закреплена техника"
+                        onclick="document.getElementById('scan-qr-input-no-assets').click();">
+                    Узнать чья техника по QR
+                </button>
+            </form>
+        </div>
     </div>
 </section>
 {% endblock %}

@@ -6,10 +6,9 @@ import re
 import zipfile
 import xml.etree.ElementTree as ET
 
-from fastapi import FastAPI, Form, Request, UploadFile, File
+from fastapi import FastAPI, Form, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 import qrcode
@@ -52,6 +51,7 @@ from config import (
     WEB_PUBLIC_BASE_URL,
     WEB_ASSET_ADD_BUTTON_ENABLED,
     WEB_TRANSFER_ENABLED,
+    WEB_DISCREPANCY_ENABLED,
     reload_web_flags_from_disk,
     _CONFIG_PATH as CONFIG_PATH,
 )
@@ -74,11 +74,22 @@ from .asset_add_requests import (
     list_asset_add_requests,
     update_asset_add_request,
 )
+from .discrepancy_requests import (
+    ALLOWED_REASONS,
+    REASON_LABELS,
+    allowed_admin_transition,
+    create_discrepancy_request,
+    get_discrepancy_request,
+    list_discrepancy_for_email,
+    list_discrepancy_requests,
+    update_discrepancy_request,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 AUDIT_LOG_PATH = BASE_DIR / "logs" / "audit.log"
 TRANSFER_UPLOADS_DIR = BASE_DIR / "uploads" / "transfers"
 ASSET_ADD_UPLOADS_DIR = BASE_DIR / "uploads" / "asset_add_requests"
+DISCREPANCY_UPLOADS_DIR = BASE_DIR / "uploads" / "discrepancy_requests"
 ASSET_ADD_PHOTO_EXAMPLES: dict[str, Path] = {
     "laptop-bottom": BASE_DIR / "IMG_5854.jpeg",
     "laptop-label-close": BASE_DIR / "IMG_5855.jpeg",
@@ -126,6 +137,13 @@ ASSET_ADD_STATUS_RU: dict[str, str] = {
     "rejected": "Отклонена",
 }
 
+DISCREPANCY_STATUS_RU: dict[str, str] = {
+    "sent": "Отправлена",
+    "in_review": "На рассмотрении",
+    "closed": "Закрыта",
+    "rejected": "Отклонена",
+}
+
 
 def _transfer_status_ru(status: str | None) -> str:
     if not status:
@@ -137,6 +155,12 @@ def _asset_add_status_ru(status: str | None) -> str:
     if not status:
         return "—"
     return ASSET_ADD_STATUS_RU.get(str(status), str(status))
+
+
+def _discrepancy_status_ru(status: str | None) -> str:
+    if not status:
+        return "—"
+    return DISCREPANCY_STATUS_RU.get(str(status), str(status))
 
 
 def _operation_transfer_label(stored: object) -> str:
@@ -157,8 +181,39 @@ def _operation_transfer_label(stored: object) -> str:
     return s
 
 
+def _norm_status(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def _admin_new_transfer_count() -> int:
+    # Админ подключается, когда заявка на перемещение готова к финальному утверждению.
+    return sum(
+        1 for t in list_transfers() if _norm_status(t.get("status")) == "ready_for_admin"
+    )
+
+
+def _admin_new_asset_add_count() -> int:
+    # Админ подключается на первичной проверке заявки на добавление техники.
+    return sum(
+        1
+        for r in list_asset_add_requests()
+        if _norm_status(r.get("status")) == "pending_review"
+    )
+
+
+def _admin_new_discrepancy_count() -> int:
+    # Админ должен обработать и новые, и уже взятые в работу несоответствия.
+    actionable = {"sent", "in_review"}
+    return sum(
+        1
+        for r in list_discrepancy_requests()
+        if _norm_status(r.get("status")) in actionable
+    )
+
+
 jinja_env.filters["transfer_status_ru"] = _transfer_status_ru
 jinja_env.filters["asset_add_status_ru"] = _asset_add_status_ru
+jinja_env.filters["discrepancy_status_ru"] = _discrepancy_status_ru
 jinja_env.filters["operation_transfer_label"] = _operation_transfer_label
 
 
@@ -172,15 +227,28 @@ def render_template(name: str, context: dict, status_code: int = 200) -> HTMLRes
     # Шапка: «Заявки» видны, если включён хотя бы один контур (перемещение или добавление техники).
     ctx.setdefault(
         "show_requests_in_nav",
-        WEB_TRANSFER_ENABLED or WEB_ASSET_ADD_BUTTON_ENABLED,
+        WEB_TRANSFER_ENABLED or WEB_ASSET_ADD_BUTTON_ENABLED or WEB_DISCREPANCY_ENABLED,
     )
     ctx.setdefault("transfer_requests_enabled", WEB_TRANSFER_ENABLED)
     ctx.setdefault("asset_add_button_enabled", WEB_ASSET_ADD_BUTTON_ENABLED)
+    ctx.setdefault("discrepancy_enabled", WEB_DISCREPANCY_ENABLED)
+    if request is not None and bool(request.session.get("is_admin")):
+        # Индикаторы в шапке: показываем только заявки, где от админа ожидается действие.
+        ctx["admin_transfer_new_count"] = (
+            _admin_new_transfer_count() if WEB_TRANSFER_ENABLED else 0
+        )
+        ctx["admin_asset_add_new_count"] = (
+            _admin_new_asset_add_count() if WEB_ASSET_ADD_BUTTON_ENABLED else 0
+        )
+        ctx["admin_discrepancy_new_count"] = (
+            _admin_new_discrepancy_count() if WEB_DISCREPANCY_ENABLED else 0
+        )
+    else:
+        ctx["admin_transfer_new_count"] = 0
+        ctx["admin_asset_add_new_count"] = 0
+        ctx["admin_discrepancy_new_count"] = 0
     content = template.render(ctx)
     return HTMLResponse(content=content, status_code=status_code)
-
-
-templates = Jinja2Templates(directory=str(templates_dir))
 
 
 def _write_audit(request: Request, action: str, details: str = "") -> None:
@@ -893,7 +961,7 @@ def _notify_transfer_scan_uploaded(transfer_id: str, tr: dict) -> None:
     subj = f"Подтвердить перемещение №{wb}"
     body = (
         _transfer_brief_text(tr)
-        + "\n\nПроверьте вложение и подтвердите в разделе «Заявки (админ)» на сайте.\n"
+        + "\n\nПроверьте вложение и подтвердите в разделе «Перемещения (админ)» на сайте.\n"
     )
     ok, err = send_email_with_attachment(addrs, subj, body, path, fn)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1485,7 +1553,7 @@ def _notify_asset_add_created(req: dict) -> tuple[bool, str]:
         f"Комментарий: {req.get('comment') or '—'}",
         f"Фото: {len(req.get('photos') or [])} шт.",
         "",
-        "Откройте раздел «Заявки (админ)» в вебе и подтвердите заявку.",
+        "Откройте раздел «Перемещения (админ)» в вебе и подтвердите заявку.",
     ]
     photos = req.get("photos") or []
     attachments: list[tuple[Path, str]] = []
@@ -1540,6 +1608,85 @@ def _notify_asset_add_rejected(req: dict) -> None:
     ok, err = send_plain_text_email([to_email], subj, body)
     if not ok:
         logger.warning("Письмо пользователю об отклонении заявки на добавление не отправлено: %s", err)
+
+
+def _discrepancy_notify_admin_addresses() -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for e in ADMIN_EMAILS:
+        el = (e or "").strip().lower()
+        if el and el not in seen:
+            seen.add(el)
+            out.append(str(e).strip())
+    fallback = (TRANSFER_ADMIN_CONFIRM_EMAIL or "").strip() or (TRANSFER_NOTIFICATION_TO or "").strip()
+    for part in fallback.replace(",", " ").split():
+        p = part.strip()
+        if not p:
+            continue
+        pl = p.lower()
+        if pl not in seen:
+            seen.add(pl)
+            out.append(p)
+    return out
+
+
+def _notify_discrepancy_created(req: dict) -> tuple[bool, str]:
+    addrs = _discrepancy_notify_admin_addresses()
+    if not addrs:
+        return False, "не заданы адреса администраторов для уведомлений"
+    req_num = (req.get("request_number") or "").strip() or str(req.get("id") or "")
+    base = (WEB_PUBLIC_BASE_URL or "").rstrip("/")
+    admin_link = f"{base}/admin/discrepancies" if base else "/admin/discrepancies"
+    subj = f"Заявка {req_num}: несоответствие техники"
+    lines = [
+        "Новая заявка о несоответствии техники.",
+        "",
+        f"Номер: {req_num}",
+        f"Заявитель: {req.get('requester_fio') or '—'} <{req.get('requester_email') or ''}>",
+        f"Актив: {req.get('asset_name') or '—'} (ID {req.get('asset_id')})",
+        f"Инв. №: {req.get('inventory_number') or '—'}, серийный: {req.get('serial_number') or '—'}",
+        f"Причина: {req.get('reason_text') or req.get('reason_code') or '—'}",
+        f"Комментарий: {req.get('comment') or '—'}",
+        f"Фото: {len(req.get('photos') or [])} шт.",
+        "",
+        f"Раздел администратора: {admin_link}",
+    ]
+    photos = req.get("photos") or []
+    attachments: list[tuple[Path, str]] = []
+    for ph in photos:
+        p = Path(ph.get("path") or "")
+        if p.is_file():
+            attachments.append((p, ph.get("name") or p.name))
+    if attachments:
+        return send_email_with_attachments(addrs, subj, "\n".join(lines), attachments)
+    return send_plain_text_email(addrs, subj, "\n".join(lines))
+
+
+def _notify_discrepancy_user(req: dict, event: str) -> None:
+    to_email = (req.get("requester_email") or "").strip()
+    if not to_email:
+        return
+    req_num = (req.get("request_number") or "").strip() or str(req.get("id") or "")
+    st = _discrepancy_status_ru(req.get("status"))
+    if event == "status_change":
+        subj = f"Заявка {req_num}: {st}"
+        body = "\n".join(
+            [
+                f"Здравствуйте, {req.get('requester_fio') or 'коллега'}.",
+                "",
+                f"Статус заявки о несоответствии: {st}.",
+                f"Номер заявки: {req_num}",
+                f"Актив: {req.get('asset_name') or '—'}",
+                "",
+                "Комментарий администратора:",
+                (req.get("admin_note") or "").strip() or "—",
+            ]
+        )
+    else:
+        return
+    ok, err = send_plain_text_email([to_email], subj, body)
+    if not ok:
+        logger.warning("Письмо по заявке несоответствия не отправлено: %s", err)
 
 
 def _first_service_row(resp: dict | None) -> dict:
@@ -2058,6 +2205,7 @@ def _build_mixed_transfer_rows(
     *,
     include_transfers: bool = True,
     include_asset_add: bool = True,
+    include_discrepancy: bool = True,
 ) -> list[dict]:
     email_low = (email or "").lower().strip()
     rows: list[dict] = []
@@ -2089,6 +2237,27 @@ def _build_mixed_transfer_rows(
                     "atracker_req_number": req.get("atracker_req_number") or "",
                 }
             )
+    if include_discrepancy:
+        for req in reversed(list_discrepancy_for_email(email)):
+            rows.append(
+                {
+                    "kind": "discrepancy",
+                    "id": req.get("id"),
+                    "request_number": req.get("request_number") or "",
+                    "status": req.get("status"),
+                    "title": req.get("asset_name") or "Несоответствие техники",
+                    "asset_name": req.get("asset_name") or "",
+                    "created_at": req.get("created_at") or "",
+                    "photos_count": len(req.get("photos") or []),
+                    "reason_code": req.get("reason_code") or "",
+                    "reason_text": req.get("reason_text") or "",
+                }
+            )
+
+    def _row_sort_key(r: dict) -> str:
+        return str(r.get("created_at") or r.get("updated_at") or "")
+
+    rows.sort(key=_row_sort_key, reverse=True)
     return rows
 
 
@@ -2753,6 +2922,7 @@ async def assets_page(request: Request):
         "is_admin": bool(request.session.get("is_admin")),
         "message": request.session.pop("flash_message", None),
         "asset_add_button_enabled": WEB_ASSET_ADD_BUTTON_ENABLED,
+        "discrepancy_enabled": WEB_DISCREPANCY_ENABLED,
     }
     return render_template("assets.html", context)
 
@@ -3812,7 +3982,7 @@ async def asset_add_detail_page(request: Request, request_id: str):
             "Подача заявки на добавление техники отключена в настройках сайта."
         )
         return RedirectResponse(
-            url="/admin/transfers" if is_admin else "/assets",
+            url="/admin/asset-add" if is_admin else "/assets",
             status_code=302,
         )
     req = get_asset_add_request(request_id)
@@ -3914,6 +4084,373 @@ async def asset_add_photo_file(request: Request, request_id: str, photo_idx: int
         filename=ph.get("name") or p.name,
         content_disposition_type="inline",
     )
+
+
+async def _user_asset_dict_by_id(fio: str, asset_id: int) -> dict | None:
+    client = _build_atracker_client()
+    try:
+        raw_assets = await client.get_assets_by_fio(fio)
+    except Exception:
+        return None
+    for a in raw_assets or []:
+        if not isinstance(a, dict) or a.get("ID") is None:
+            continue
+        try:
+            aid = int(a["ID"])
+        except (TypeError, ValueError):
+            continue
+        if aid == asset_id:
+            return a
+    return None
+
+
+@app.get("/discrepancy/start", response_class=HTMLResponse)
+async def discrepancy_start_get(
+    request: Request, asset_id: int | None = Query(None)
+):
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not WEB_DISCREPANCY_ENABLED:
+        request.session["flash_message"] = (
+            "Сообщения о несоответствии отключены в настройках сайта."
+        )
+        return RedirectResponse(url="/assets", status_code=302)
+    client = _build_atracker_client()
+    try:
+        raw_assets = await client.get_assets_by_fio(fio)
+    except Exception:
+        request.session["flash_message"] = "Не удалось загрузить активы из A‑Tracker."
+        return RedirectResponse(url="/assets", status_code=302)
+    items: list[dict] = []
+    for a in raw_assets or []:
+        if not isinstance(a, dict) or a.get("ID") is None:
+            continue
+        aid = int(a["ID"])
+        name = a.get("sFullName") or a.get("Name") or f"ID {aid}"
+        serial = a.get("sSerialNo") or "-"
+        invent = inventory_number_from_atracker_dict(a) or "-"
+        items.append({"id": aid, "name": name, "serial": serial, "invent": invent})
+    if not items:
+        request.session["flash_message"] = "У вас нет активов для выбора."
+        return RedirectResponse(url="/assets", status_code=302)
+    preselect: int | None = None
+    if asset_id is not None:
+        for it in items:
+            if it["id"] == asset_id:
+                preselect = asset_id
+                break
+    context = {
+        "request": request,
+        "title": "Сообщить о несоответствии",
+        "assets_options": items,
+        "preselect_asset_id": preselect,
+        "reason_labels": REASON_LABELS,
+        "reason_codes": sorted(ALLOWED_REASONS),
+        "message": request.session.pop("flash_message", None),
+    }
+    return render_template("discrepancy_start.html", context)
+
+
+@app.post("/discrepancy/start")
+async def discrepancy_start_post(
+    request: Request,
+    asset_id: str = Form(...),
+    reason_code: str = Form(...),
+    reason_other: str = Form(""),
+    comment: str = Form(""),
+    files: list[UploadFile] | None = File(None),
+):
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not WEB_DISCREPANCY_ENABLED:
+        request.session["flash_message"] = (
+            "Сообщения о несоответствии отключены в настройках сайта."
+        )
+        return RedirectResponse(url="/assets", status_code=302)
+    try:
+        aid_int = int(str(asset_id).strip())
+    except (TypeError, ValueError):
+        request.session["flash_message"] = "Некорректный идентификатор актива."
+        return RedirectResponse(url="/discrepancy/start", status_code=302)
+    rc = (reason_code or "").strip()
+    if rc not in ALLOWED_REASONS:
+        request.session["flash_message"] = "Выберите причину из списка."
+        return RedirectResponse(url="/discrepancy/start", status_code=302)
+    if rc == "other":
+        rt = (reason_other or "").strip()
+        if not rt:
+            request.session["flash_message"] = "Опишите причину в поле «Другое»."
+            return RedirectResponse(url="/discrepancy/start", status_code=302)
+    else:
+        rt = REASON_LABELS.get(rc, rc)
+    ad = await _user_asset_dict_by_id(fio, aid_int)
+    if not ad:
+        request.session["flash_message"] = "Актив не найден в вашем списке."
+        return RedirectResponse(url="/assets", status_code=302)
+    if files is None:
+        upload_list = []
+    elif isinstance(files, list):
+        upload_list = files
+    else:
+        upload_list = [files]
+    if len(upload_list) > 10:
+        request.session["flash_message"] = "Можно загрузить не более 10 фото."
+        return RedirectResponse(url="/discrepancy/start", status_code=302)
+    req_id = str(uuid4())
+    req_dir = DISCREPANCY_UPLOADS_DIR / req_id
+    req_dir.mkdir(parents=True, exist_ok=True)
+    photos: list[dict] = []
+    allowed_ext = {".jpg", ".jpeg", ".png", ".webp"}
+    for idx, f in enumerate(upload_list, start=1):
+        orig = _safe_upload_name(f.filename or f"photo_{idx}.jpg")
+        ext = Path(orig).suffix.lower()
+        if ext not in allowed_ext:
+            request.session["flash_message"] = "Допустимы только изображения: JPG, PNG, WEBP."
+            return RedirectResponse(url="/discrepancy/start", status_code=302)
+        content = await f.read()
+        if not content:
+            continue
+        if len(content) > 10 * 1024 * 1024:
+            request.session["flash_message"] = "Размер одного фото не должен превышать 10 МБ."
+            return RedirectResponse(url="/discrepancy/start", status_code=302)
+        local_name = f"{idx:02d}_{orig}"
+        path = req_dir / local_name
+        path.write_bytes(content)
+        photos.append({"name": orig, "path": str(path), "size": len(content)})
+    asset_name = str(ad.get("sFullName") or ad.get("Name") or f"ID {aid_int}")
+    inv = inventory_number_from_atracker_dict(ad) or ""
+    serial = str(ad.get("sSerialNo") or "").strip()
+    try:
+        created = create_discrepancy_request(
+            {
+                "id": req_id,
+                "requester_fio": fio,
+                "requester_email": email,
+                "asset_id": aid_int,
+                "asset_name": asset_name,
+                "serial_number": serial,
+                "inventory_number": inv,
+                "reason_code": rc,
+                "reason_text": rt,
+                "comment": (comment or "").strip(),
+                "photos": photos,
+                "status": "sent",
+            }
+        )
+    except ValueError as ex:
+        request.session["flash_message"] = str(ex) or "Ошибка сохранения заявки."
+        return RedirectResponse(url="/discrepancy/start", status_code=302)
+    ok, err = _notify_discrepancy_created(created)
+    if not ok:
+        update_discrepancy_request(
+            req_id, {"notify_admin_error": err or "ошибка отправки админам"}
+        )
+    _write_audit(
+        request,
+        action="discrepancy_create",
+        details=f"request_id={req_id}; asset_id={aid_int}; photos={len(photos)}",
+    )
+    request.session["flash_message"] = (
+        "Заявка отправлена. Спасибо за информацию."
+    )
+    return RedirectResponse(url=f"/discrepancy/{req_id}", status_code=302)
+
+
+@app.get("/discrepancy/{request_id}", response_class=HTMLResponse)
+async def discrepancy_detail_page(request: Request, request_id: str):
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not WEB_DISCREPANCY_ENABLED:
+        return RedirectResponse(url="/assets", status_code=302)
+    req = get_discrepancy_request(request_id)
+    if not req:
+        request.session["flash_message"] = "Заявка не найдена."
+        return RedirectResponse(url="/transfers", status_code=302)
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin and (req.get("requester_email") or "").lower() != (email or "").lower():
+        request.session["flash_message"] = "Недостаточно прав для просмотра этой заявки."
+        return RedirectResponse(url="/transfers", status_code=302)
+    context = {
+        "request": request,
+        "title": f"Несоответствие {req.get('request_number') or request_id[:8]}",
+        "req": req,
+        "is_admin": is_admin,
+        "message": request.session.pop("flash_message", None),
+    }
+    return render_template("discrepancy_detail.html", context)
+
+
+@app.get("/discrepancy/{request_id}/photo/{photo_idx}")
+async def discrepancy_photo_file(
+    request: Request, request_id: str, photo_idx: int
+):
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return Response(status_code=401)
+    if not WEB_DISCREPANCY_ENABLED:
+        return Response(status_code=404)
+    is_admin = bool(request.session.get("is_admin"))
+    req = get_discrepancy_request(request_id)
+    if not req:
+        return Response(status_code=404)
+    if not is_admin and (req.get("requester_email") or "").lower() != (
+        email or ""
+    ).lower():
+        return Response(status_code=403)
+    photos = req.get("photos") or []
+    if photo_idx < 0 or photo_idx >= len(photos):
+        return Response(status_code=404)
+    ph = photos[photo_idx] if isinstance(photos[photo_idx], dict) else {}
+    p = Path(ph.get("path") or "")
+    if not p.is_file():
+        return Response(status_code=404)
+    suffix = p.suffix.lower()
+    media = "application/octet-stream"
+    if suffix in (".jpg", ".jpeg"):
+        media = "image/jpeg"
+    elif suffix == ".png":
+        media = "image/png"
+    elif suffix == ".webp":
+        media = "image/webp"
+    return FileResponse(
+        p,
+        media_type=media,
+        filename=ph.get("name") or p.name,
+        content_disposition_type="inline",
+    )
+
+
+@app.get("/admin/discrepancies", response_class=HTMLResponse)
+async def admin_discrepancies_page(request: Request):
+    email = request.session.get("user_email")
+    is_admin = bool(request.session.get("is_admin"))
+    if not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not is_admin:
+        request.session["flash_message"] = "Раздел доступен только администраторам."
+        return RedirectResponse(url="/assets", status_code=302)
+    if not WEB_DISCREPANCY_ENABLED:
+        request.session["flash_message"] = "Раздел отключён в настройках сайта."
+        return RedirectResponse(url="/admin", status_code=302)
+    context = {
+        "request": request,
+        "title": "Несоответствия (админ)",
+        "requests": list(reversed(list_discrepancy_requests())),
+        "message": request.session.pop("flash_message", None),
+    }
+    return render_template("admin_discrepancies.html", context)
+
+
+@app.post("/admin/discrepancy/{request_id}/in-review")
+async def admin_discrepancy_in_review(request: Request, request_id: str):
+    email = request.session.get("user_email")
+    is_admin = bool(request.session.get("is_admin"))
+    if not email or not is_admin:
+        request.session["flash_message"] = "Доступ запрещён."
+        return RedirectResponse(url="/assets", status_code=302)
+    if not WEB_DISCREPANCY_ENABLED:
+        return RedirectResponse(url="/admin", status_code=302)
+    req = get_discrepancy_request(request_id)
+    if not req:
+        request.session["flash_message"] = "Заявка не найдена."
+        return RedirectResponse(url="/admin/discrepancies", status_code=302)
+    old = str(req.get("status") or "")
+    if not allowed_admin_transition(old, "in_review"):
+        request.session["flash_message"] = "Недопустимый переход статуса."
+        return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
+    updated = update_discrepancy_request(
+        request_id, {"status": "in_review", "admin_note": (req.get("admin_note") or "")}
+    )
+    if updated:
+        _notify_discrepancy_user(updated, "status_change")
+        _write_audit(
+            request,
+            action="discrepancy_in_review",
+            details=f"request_id={request_id}",
+        )
+    return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
+
+
+@app.post("/admin/discrepancy/{request_id}/close")
+async def admin_discrepancy_close(
+    request: Request,
+    request_id: str,
+    admin_note: str = Form(""),
+):
+    email = request.session.get("user_email")
+    is_admin = bool(request.session.get("is_admin"))
+    if not email or not is_admin:
+        request.session["flash_message"] = "Доступ запрещён."
+        return RedirectResponse(url="/assets", status_code=302)
+    if not WEB_DISCREPANCY_ENABLED:
+        return RedirectResponse(url="/admin", status_code=302)
+    req = get_discrepancy_request(request_id)
+    if not req:
+        request.session["flash_message"] = "Заявка не найдена."
+        return RedirectResponse(url="/admin/discrepancies", status_code=302)
+    old = str(req.get("status") or "")
+    if not allowed_admin_transition(old, "closed"):
+        request.session["flash_message"] = "Недопустимый переход статуса."
+        return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
+    note = (admin_note or "").strip()
+    updated = update_discrepancy_request(
+        request_id, {"status": "closed", "admin_note": note}
+    )
+    if updated:
+        _notify_discrepancy_user(updated, "status_change")
+        _write_audit(
+            request,
+            action="discrepancy_closed",
+            details=f"request_id={request_id}",
+        )
+    return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
+
+
+@app.post("/admin/discrepancy/{request_id}/reject")
+async def admin_discrepancy_reject(
+    request: Request,
+    request_id: str,
+    admin_note: str = Form(""),
+):
+    email = request.session.get("user_email")
+    is_admin = bool(request.session.get("is_admin"))
+    if not email or not is_admin:
+        request.session["flash_message"] = "Доступ запрещён."
+        return RedirectResponse(url="/assets", status_code=302)
+    if not WEB_DISCREPANCY_ENABLED:
+        return RedirectResponse(url="/admin", status_code=302)
+    req = get_discrepancy_request(request_id)
+    if not req:
+        request.session["flash_message"] = "Заявка не найдена."
+        return RedirectResponse(url="/admin/discrepancies", status_code=302)
+    old = str(req.get("status") or "")
+    if not allowed_admin_transition(old, "rejected"):
+        request.session["flash_message"] = "Недопустимый переход статуса."
+        return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
+    note = (admin_note or "").strip()
+    if not note:
+        request.session["flash_message"] = (
+            "Укажите комментарий при отклонении заявки."
+        )
+        return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
+    updated = update_discrepancy_request(
+        request_id, {"status": "rejected", "admin_note": note}
+    )
+    if updated:
+        _notify_discrepancy_user(updated, "status_change")
+        _write_audit(
+            request,
+            action="discrepancy_rejected",
+            details=f"request_id={request_id}",
+        )
+    return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
 
 
 @app.get("/asset-add/photo-example/{example_key}")
@@ -4164,13 +4701,18 @@ async def transfers_list_page(request: Request):
     email = request.session.get("user_email")
     if not fio or not email:
         return RedirectResponse(url="/", status_code=302)
-    if not WEB_TRANSFER_ENABLED and not WEB_ASSET_ADD_BUTTON_ENABLED:
+    if (
+        not WEB_TRANSFER_ENABLED
+        and not WEB_ASSET_ADD_BUTTON_ENABLED
+        and not WEB_DISCREPANCY_ENABLED
+    ):
         request.session["flash_message"] = "Раздел заявок отключён в настройках сайта."
         return RedirectResponse(url="/assets", status_code=302)
     visible = _build_mixed_transfer_rows(
         email,
         include_transfers=WEB_TRANSFER_ENABLED,
         include_asset_add=WEB_ASSET_ADD_BUTTON_ENABLED,
+        include_discrepancy=WEB_DISCREPANCY_ENABLED,
     )
     context = {
         "request": request,
@@ -4697,21 +5239,39 @@ async def admin_transfers_page(request: Request):
     if not is_admin:
         request.session["flash_message"] = "Раздел доступен только администраторам."
         return RedirectResponse(url="/assets", status_code=302)
-    if not WEB_TRANSFER_ENABLED and not WEB_ASSET_ADD_BUTTON_ENABLED:
-        request.session["flash_message"] = "Раздел заявок отключён в настройках сайта."
+    if not WEB_TRANSFER_ENABLED:
+        request.session["flash_message"] = "Раздел перемещений отключён в настройках сайта."
         return RedirectResponse(url="/admin", status_code=302)
     context = {
         "request": request,
-        "title": "Заявки (админ)",
-        "transfers": list(reversed(list_transfers())) if WEB_TRANSFER_ENABLED else [],
-        "asset_add_requests": (
-            list(reversed(list_asset_add_requests())) if WEB_ASSET_ADD_BUTTON_ENABLED else []
-        ),
-        "asset_add_button_enabled": WEB_ASSET_ADD_BUTTON_ENABLED,
+        "title": "Заявки на перемещение техники (админ)",
+        "transfers": list(reversed(list_transfers())),
         "transfer_requests_enabled": WEB_TRANSFER_ENABLED,
         "message": request.session.pop("flash_message", None),
     }
     return render_template("admin_transfers.html", context)
+
+
+@app.get("/admin/asset-add", response_class=HTMLResponse)
+async def admin_asset_add_page(request: Request):
+    email = request.session.get("user_email")
+    is_admin = bool(request.session.get("is_admin"))
+    if not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not is_admin:
+        request.session["flash_message"] = "Раздел доступен только администраторам."
+        return RedirectResponse(url="/assets", status_code=302)
+    if not WEB_ASSET_ADD_BUTTON_ENABLED:
+        request.session["flash_message"] = "Раздел добавления техники отключён в настройках сайта."
+        return RedirectResponse(url="/admin", status_code=302)
+    context = {
+        "request": request,
+        "title": "Заявки на добавление техники (админ)",
+        "asset_add_requests": list(reversed(list_asset_add_requests())),
+        "asset_add_button_enabled": WEB_ASSET_ADD_BUTTON_ENABLED,
+        "message": request.session.pop("flash_message", None),
+    }
+    return render_template("admin_asset_add.html", context)
 
 
 @app.post("/admin/asset-add/{request_id}/approve")
@@ -4739,11 +5299,11 @@ async def admin_asset_add_approve(
         request.session["flash_message"] = (
             "Подача заявки на добавление техники отключена в настройках сайта."
         )
-        return RedirectResponse(url="/admin/transfers", status_code=302)
+        return RedirectResponse(url="/admin/asset-add", status_code=302)
     req = get_asset_add_request(request_id)
     if not req:
         request.session["flash_message"] = "Заявка не найдена."
-        return RedirectResponse(url="/admin/transfers", status_code=302)
+        return RedirectResponse(url="/admin/asset-add", status_code=302)
     already_approved = req.get("status") == "approved"
     has_final_asset = int(req.get("final_asset_id") or 0) > 0
     # Разрешаем повторное "подтверждение" только если заявка approved,
@@ -4842,7 +5402,7 @@ async def admin_asset_add_approve(
     )
     if not updated:
         request.session["flash_message"] = "Не удалось обновить статус заявки."
-        return RedirectResponse(url="/admin/transfers", status_code=302)
+        return RedirectResponse(url="/admin/asset-add", status_code=302)
     if finalize_err:
         request.session["flash_message"] = (
             "Заявка подтверждена и актив обработан, но есть предупреждения: "
@@ -4896,12 +5456,12 @@ async def admin_asset_add_reject(
         request.session["flash_message"] = (
             "Подача заявки на добавление техники отключена в настройках сайта."
         )
-        return RedirectResponse(url="/admin/transfers", status_code=302)
+        return RedirectResponse(url="/admin/asset-add", status_code=302)
 
     req = get_asset_add_request(request_id)
     if not req:
         request.session["flash_message"] = "Заявка не найдена."
-        return RedirectResponse(url="/admin/transfers", status_code=302)
+        return RedirectResponse(url="/admin/asset-add", status_code=302)
 
     comment = (reject_comment or "").strip()
     if not comment:
@@ -4922,7 +5482,7 @@ async def admin_asset_add_reject(
     )
     if not updated:
         request.session["flash_message"] = "Не удалось отклонить заявку."
-        return RedirectResponse(url="/admin/transfers", status_code=302)
+        return RedirectResponse(url="/admin/asset-add", status_code=302)
 
     _notify_asset_add_rejected(updated)
     _write_audit(request, action="asset_add_rejected", details=f"request_id={request_id}")

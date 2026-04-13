@@ -32,7 +32,6 @@ async def main():
         upload_doc_service_id=config.ATRACKER_UPLOAD_DOC_SERVICE_ID,
         asset_info_service_id=config.ATRACKER_ASSET_INFO_SERVICE_ID,
         employees_list_service_id=config.ATRACKER_EMPLOYEES_LIST_SERVICE_ID,
-        employee_update_service_id=config.ATRACKER_EMPLOYEE_UPDATE_SERVICE_ID,
     )
 
     print("Загружаю сотрудников из A-Tracker…")

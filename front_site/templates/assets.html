@@ -121,6 +121,13 @@
                                title="Открыть страницу с ярлыком и QR-кодом для печати">
                                 Напечатать QR
                             </a>
+                            {% if discrepancy_enabled %}
+                            <a href="/discrepancy/start?asset_id={{ a.id }}"
+                               class="assets-list__link-button"
+                               title="Сообщить о несоответствии по этой позиции">
+                                Сообщить о несоответствии
+                            </a>
+                            {% endif %}
                         </div>
                     </div>
                 </div>

@@ -21,7 +21,30 @@
                     {% if show_requests_in_nav %}
                     <a href="/transfers" class="site-header__link{% if path.startswith('/transfers') or path.startswith('/transfer/') %} site-header__link--active{% endif %}">Заявки</a>
                     {% if request.session.get("is_admin") %}
-                        <a href="/admin/transfers" class="site-header__link{% if path.startswith('/admin/transfers') %} site-header__link--active{% endif %}">Заявки (админ)</a>
+                        {% if transfer_requests_enabled %}
+                        <a href="/admin/transfers" class="site-header__link{% if path.startswith('/admin/transfers') %} site-header__link--active{% endif %}">
+                            Перемещения (админ)
+                            {% if (admin_transfer_new_count or 0) > 0 %}
+                            <span class="site-header__badge" title="Новых заявок: {{ admin_transfer_new_count }}">{{ admin_transfer_new_count }}</span>
+                            {% endif %}
+                        </a>
+                        {% endif %}
+                        {% if asset_add_button_enabled %}
+                        <a href="/admin/asset-add" class="site-header__link{% if path.startswith('/admin/asset-add') %} site-header__link--active{% endif %}">
+                            Добавление техники (админ)
+                            {% if (admin_asset_add_new_count or 0) > 0 %}
+                            <span class="site-header__badge" title="Новых заявок: {{ admin_asset_add_new_count }}">{{ admin_asset_add_new_count }}</span>
+                            {% endif %}
+                        </a>
+                        {% endif %}
+                        {% if discrepancy_enabled %}
+                        <a href="/admin/discrepancies" class="site-header__link{% if path.startswith('/admin/discrepancies') %} site-header__link--active{% endif %}">
+                            Несоответствия (админ)
+                            {% if (admin_discrepancy_new_count or 0) > 0 %}
+                            <span class="site-header__badge" title="Новых заявок: {{ admin_discrepancy_new_count }}">{{ admin_discrepancy_new_count }}</span>
+                            {% endif %}
+                        </a>
+                        {% endif %}
                     {% endif %}
                     {% endif %}
                     <a href="/logout" class="site-header__link">Выйти</a>
