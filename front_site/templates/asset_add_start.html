@@ -3,6 +3,48 @@
 {% block title %}Добавить технику{% endblock %}
 
 {% block content %}
+<style>
+  /* Fallback-стили в шаблоне: защищают от кеша старого static/style.css на проде */
+  .asset-photo-examples { margin-top: 0.15rem; }
+  .asset-photo-examples__title {
+    display: block;
+    font-size: 0.82rem;
+    color: #4b5563;
+    margin-bottom: 0.45rem;
+  }
+  .asset-photo-examples__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  .asset-photo-examples__item {
+    border: 1px solid #dbe3ef;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    padding: 0;
+    cursor: zoom-in;
+  }
+  .asset-photo-examples__item img {
+    display: block;
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    background: #f3f4f6;
+  }
+  .asset-photo-examples__item span {
+    padding: 0.4rem 0.5rem 0.5rem;
+    font-size: 0.76rem;
+    line-height: 1.2;
+    color: #334155;
+  }
+  @media (max-width: 600px) {
+    .asset-photo-examples__grid { grid-template-columns: 1fr; }
+  }
+</style>
 <section class="hero">
     <div class="hero__card settings-card asset-add-start-card">
         <h1 class="hero__title hero__title--center">Добавить технику</h1>
