@@ -115,11 +115,21 @@ WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
 WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
 
 def reload_web_flags_from_disk() -> None:
-    """Перечитать config.ini и обновить переменные [web] в памяти (после /settings/save без обязательного рестарта)."""
-    global _cfg, WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED, WEB_DISCREPANCY_ENABLED
+    """Перечитать config.ini и обновить runtime-настройки [web]/[email] в памяти."""
+    global _cfg
+    global WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED, WEB_DISCREPANCY_ENABLED
+    global ADMIN_EMAILS, BYPASS_CODE_EMAILS, EMAIL_DOMAIN_ALLOWED
+    global TRANSFER_NOTIFICATION_TO, TRANSFER_ADMIN_CONFIRM_EMAIL
     _cfg = ConfigParser()
     if os.path.isfile(_CONFIG_PATH):
         _cfg.read(_CONFIG_PATH, encoding="utf-8")
+    # email / auth
+    EMAIL_DOMAIN_ALLOWED = _get("email", "domain_allowed", "asg.ru")
+    ADMIN_EMAILS = _parse_admin_emails()
+    BYPASS_CODE_EMAILS = _parse_bypass_code_emails()
+    TRANSFER_NOTIFICATION_TO = _get("email", "transfer_notification_to", "")
+    TRANSFER_ADMIN_CONFIRM_EMAIL = _get("email", "transfer_admin_confirm_email", "mikhail.melgit@asg.ru")
+    # web flags
     WEB_PUBLIC_BASE_URL = _get("web", "public_base_url", "")
     WEB_ASSET_ADD_BUTTON_ENABLED = _getbool("web", "asset_add_button_enabled", True)
     WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)

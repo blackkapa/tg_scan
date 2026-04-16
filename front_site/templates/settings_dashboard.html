@@ -85,19 +85,19 @@
                             >{{ config.email_bypass_code_emails }}</textarea>
                         </label>
                         <label>
-                            <span>Уведомление о скане акта (transfer_notification_to)</span>
+                            <span>Копия скана акта (бухгалтерия) (transfer_notification_to)</span>
                             <input type="text" name="email_transfer_notification_to" class="auth-form__input"
-                                   placeholder="почта@asg.ru"
+                                   placeholder="book1@asg.ru, book2@asg.ru"
                                    value="{{ config.email_transfer_notification_to }}">
                         </label>
                         <label>
-                            <span>Подтверждение перемещения админом (transfer_admin_confirm_email)</span>
+                            <span>Операционное подтверждение перемещения (сервисдеск) (transfer_admin_confirm_email)</span>
                             <input type="text" name="email_transfer_admin_confirm_email" class="auth-form__input"
-                                   placeholder="почта@asg.ru"
+                                   placeholder="sd@asg.ru, engineer@asg.ru"
                                    value="{{ config.email_transfer_admin_confirm_email }}">
                         </label>
                         <p class="auth-form__hint" style="margin-top: 0;">
-                            Письмо со сканом акта: адрес из transfer_admin_confirm_email; если пусто — из transfer_notification_to.
+                            В сервисдеск уходит только факт создания заявок (перемещение/несоответствие/добавление техники). По скану акта отправка идет только в бухгалтерию.
                         </p>
                     </div>
 

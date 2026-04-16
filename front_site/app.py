@@ -185,6 +185,41 @@ def _norm_status(value: object) -> str:
     return str(value or "").strip().lower()
 
 
+def _parse_emails(raw: str | None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in str(raw or "").replace(",", " ").split():
+        email = part.strip()
+        if not email:
+            continue
+        key = email.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(email)
+    return out
+
+
+def _transfer_confirm_addresses() -> list[str]:
+    """Операционные адреса: кто должен обработать перемещение в админке."""
+    return _parse_emails(TRANSFER_ADMIN_CONFIRM_EMAIL)
+
+
+def _transfer_accounting_addresses() -> list[str]:
+    """Информационные адреса: кому отправить копию скана акта (бухгалтерия)."""
+    return _parse_emails(TRANSFER_NOTIFICATION_TO)
+
+
+def _asset_add_admin_addresses() -> list[str]:
+    """Адреса админов для заявок на добавление техники."""
+    return _parse_emails(" ".join(ADMIN_EMAILS))
+
+
+def _service_desk_addresses() -> list[str]:
+    """Адреса сервисдеска: сюда отправляем только факт создания заявки."""
+    return _transfer_confirm_addresses()
+
+
 def _actor_label_from_session(request: Request) -> str:
     email = str(request.session.get("user_email") or "").strip()
     fio = str(request.session.get("user_fio") or "").strip()
@@ -938,11 +973,30 @@ def _notify_transfer_new_to_recipient(transfer_id: str, tr: dict) -> None:
         logger.warning("Письмо получателю о новой заявке на перемещение не отправлено: %s", err)
 
 
+def _notify_transfer_created_to_service_desk(transfer_id: str, tr: dict) -> tuple[bool, str]:
+    """Факт создания перемещения в сервисдеск (без вложений)."""
+    addrs = _service_desk_addresses()
+    if not addrs:
+        return False, "не задан email сервисдеска (email.transfer_admin_confirm_email)"
+    wb = (tr.get("waybill_number") or "").strip() or transfer_id[:8]
+    link = _transfer_public_link(transfer_id) or f"/transfers/{transfer_id}"
+    subj = f"Новая заявка (факт): перемещение техники №{wb}"
+    body = "\n".join(
+        [
+            "Создана заявка на перемещение техники (факт регистрации).",
+            "",
+            f"Номер накладной: {wb}",
+            f"Отправитель: {tr.get('from_fio') or '—'} <{tr.get('from_email') or ''}>",
+            f"Получатель: {tr.get('to_fio') or '—'} <{tr.get('to_email') or ''}>",
+            f"Ссылка: {link}",
+        ]
+    )
+    return send_plain_text_email(addrs, subj, body)
+
+
 def _notify_transfer_scan_uploaded(transfer_id: str, tr: dict) -> None:
-    """(3) Письмо администратору с вложением: тема «Подтвердить перемещение №…»."""
-    to_raw = (TRANSFER_ADMIN_CONFIRM_EMAIL or "").strip()
-    if not to_raw:
-        to_raw = (TRANSFER_NOTIFICATION_TO or "").strip()
+    """(3) Письмо по скану акта только в бухгалтерию (копия для учета)."""
+    accounting_addrs = _transfer_accounting_addresses()
     path_str = tr.get("scan_file_path") or ""
     path = Path(path_str)
     if not path.is_file():
@@ -951,38 +1005,53 @@ def _notify_transfer_scan_uploaded(transfer_id: str, tr: dict) -> None:
             {
                 "notification_sent_at": "",
                 "notification_last_error": "файл скана не найден для отправки",
+                "confirm_notification_sent_at": "",
+                "confirm_notification_error": "",
+                "accounting_notification_sent_at": "",
+                "accounting_notification_error": "файл скана не найден для отправки",
             },
         )
         return
-    if not to_raw:
+    if not accounting_addrs:
         update_transfer(
             transfer_id,
             {
                 "notification_sent_at": "",
-                "notification_last_error": "не задан адрес (email.transfer_admin_confirm_email)",
+                "notification_last_error": "не задан адрес (email.transfer_notification_to)",
+                "confirm_notification_sent_at": "",
+                "confirm_notification_error": "",
+                "accounting_notification_sent_at": "",
+                "accounting_notification_error": "не задан адрес (email.transfer_notification_to)",
             },
         )
         return
-    addrs = [x.strip() for x in to_raw.replace(",", " ").split() if x.strip()]
     fn = tr.get("scan_original_name") or path.name
     wb = (tr.get("waybill_number") or "").strip() or transfer_id[:8]
-    subj = f"Подтвердить перемещение №{wb}"
-    body = (
+    subj_accounting = f"Скан акта по перемещению №{wb}"
+    body_accounting = (
         _transfer_brief_text(tr)
-        + "\n\nПроверьте вложение и подтвердите в разделе «Перемещения (админ)» на сайте.\n"
+        + "\n\nКопия подписанного акта для учета. Действий в системе не требуется.\n"
     )
-    ok, err = send_email_with_attachment(addrs, subj, body, path, fn)
+
+    accounting_ok, accounting_err = send_email_with_attachment(
+        accounting_addrs, subj_accounting, body_accounting, path, fn
+    )
+
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if ok:
-        update_transfer(
-            transfer_id,
-            {"notification_sent_at": ts, "notification_last_error": ""},
-        )
+    patch = {
+        "confirm_notification_sent_at": "",
+        "confirm_notification_error": "",
+        "accounting_notification_sent_at": ts if accounting_ok else "",
+        "accounting_notification_error": "" if accounting_ok else (accounting_err or "ошибка отправки почты"),
+    }
+    # Совместимость со старым UI/данными (одно поле статуса рассылки)
+    if accounting_ok:
+        patch["notification_sent_at"] = ts
+        patch["notification_last_error"] = patch["accounting_notification_error"]
     else:
-        update_transfer(
-            transfer_id,
-            {"notification_sent_at": "", "notification_last_error": err or "ошибка отправки почты"},
-        )
+        patch["notification_sent_at"] = ""
+        patch["notification_last_error"] = patch["accounting_notification_error"] or "ошибка отправки почты"
+    update_transfer(transfer_id, patch)
 
 
 def _notify_transfer_completed_both(transfer_id: str, tr: dict) -> None:
@@ -1543,34 +1612,22 @@ def _safe_upload_name(name: str) -> str:
 
 
 def _notify_asset_add_created(req: dict) -> tuple[bool, str]:
-    to_raw = (TRANSFER_ADMIN_CONFIRM_EMAIL or "").strip() or (TRANSFER_NOTIFICATION_TO or "").strip()
-    if not to_raw:
-        return False, "не задан email администратора для уведомлений"
-    addrs = [x.strip() for x in to_raw.replace(",", " ").split() if x.strip()]
+    addrs = _service_desk_addresses()
+    if not addrs:
+        return False, "не задан email сервисдеска (email.transfer_admin_confirm_email)"
     req_num = (req.get("request_number") or "").strip() or str(req.get("id") or "")
-    subj = f"Заявка {req_num}: добавление техники"
+    subj = f"Новая заявка (факт): добавление техники {req_num}"
+    base = (WEB_PUBLIC_BASE_URL or "").rstrip("/")
+    link = f"{base}/asset-add/{req.get('id')}" if base else f"/asset-add/{req.get('id')}"
     lines = [
-        "Новая заявка на добавление техники.",
+        "Создана заявка на добавление техники (факт регистрации).",
         "",
         f"Номер заявки: {req_num}",
         f"Создал: {req.get('requester_fio') or '—'} <{req.get('requester_email') or ''}>",
         f"Категория: {req.get('category_name') or '—'}",
         f"Наименование: {req.get('asset_name') or '—'}",
-        f"Серийный номер: {req.get('serial_number') or '—'}",
-        f"Инвентарный номер: {req.get('inventory_number') or '—'}",
-        f"Комментарий: {req.get('comment') or '—'}",
-        f"Фото: {len(req.get('photos') or [])} шт.",
-        "",
-        "Откройте раздел «Перемещения (админ)» в вебе и подтвердите заявку.",
+        f"Ссылка: {link}",
     ]
-    photos = req.get("photos") or []
-    attachments: list[tuple[Path, str]] = []
-    for ph in photos:
-        p = Path(ph.get("path") or "")
-        if p.is_file():
-            attachments.append((p, ph.get("name") or p.name))
-    if attachments:
-        return send_email_with_attachments(addrs, subj, "\n".join(lines), attachments)
     return send_plain_text_email(addrs, subj, "\n".join(lines))
 
 
@@ -1619,54 +1676,25 @@ def _notify_asset_add_rejected(req: dict) -> None:
 
 
 def _discrepancy_notify_admin_addresses() -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for e in ADMIN_EMAILS:
-        el = (e or "").strip().lower()
-        if el and el not in seen:
-            seen.add(el)
-            out.append(str(e).strip())
-    fallback = (TRANSFER_ADMIN_CONFIRM_EMAIL or "").strip() or (TRANSFER_NOTIFICATION_TO or "").strip()
-    for part in fallback.replace(",", " ").split():
-        p = part.strip()
-        if not p:
-            continue
-        pl = p.lower()
-        if pl not in seen:
-            seen.add(pl)
-            out.append(p)
-    return out
+    return _service_desk_addresses()
 
 
 def _notify_discrepancy_created(req: dict) -> tuple[bool, str]:
     addrs = _discrepancy_notify_admin_addresses()
     if not addrs:
-        return False, "не заданы адреса администраторов для уведомлений"
+        return False, "не задан email сервисдеска (email.transfer_admin_confirm_email)"
     req_num = (req.get("request_number") or "").strip() or str(req.get("id") or "")
     base = (WEB_PUBLIC_BASE_URL or "").rstrip("/")
     admin_link = f"{base}/admin/discrepancies" if base else "/admin/discrepancies"
-    subj = f"Заявка {req_num}: несоответствие техники"
+    subj = f"Новая заявка (факт): несоответствие техники {req_num}"
     lines = [
-        "Новая заявка о несоответствии техники.",
+        "Создана заявка о несоответствии техники (факт регистрации).",
         "",
         f"Номер: {req_num}",
         f"Заявитель: {req.get('requester_fio') or '—'} <{req.get('requester_email') or ''}>",
         f"Актив: {req.get('asset_name') or '—'} (ID {req.get('asset_id')})",
-        f"Инв. №: {req.get('inventory_number') or '—'}, серийный: {req.get('serial_number') or '—'}",
-        f"Причина: {req.get('reason_text') or req.get('reason_code') or '—'}",
-        f"Комментарий: {req.get('comment') or '—'}",
-        f"Фото: {len(req.get('photos') or [])} шт.",
-        "",
         f"Раздел администратора: {admin_link}",
     ]
-    photos = req.get("photos") or []
-    attachments: list[tuple[Path, str]] = []
-    for ph in photos:
-        p = Path(ph.get("path") or "")
-        if p.is_file():
-            attachments.append((p, ph.get("name") or p.name))
-    if attachments:
-        return send_email_with_attachments(addrs, subj, "\n".join(lines), attachments)
     return send_plain_text_email(addrs, subj, "\n".join(lines))
 
 
@@ -2711,6 +2739,11 @@ async def settings_save(
             web_transfer_enabled=(str(web_transfer_enabled).strip() == "1"),
         )
         reload_web_flags_from_disk()
+        globals()["EMAIL_DOMAIN_ALLOWED"] = _config_runtime.EMAIL_DOMAIN_ALLOWED
+        globals()["ADMIN_EMAILS"] = _config_runtime.ADMIN_EMAILS
+        globals()["BYPASS_CODE_EMAILS"] = _config_runtime.BYPASS_CODE_EMAILS
+        globals()["TRANSFER_NOTIFICATION_TO"] = _config_runtime.TRANSFER_NOTIFICATION_TO
+        globals()["TRANSFER_ADMIN_CONFIRM_EMAIL"] = _config_runtime.TRANSFER_ADMIN_CONFIRM_EMAIL
         globals()["WEB_PUBLIC_BASE_URL"] = _config_runtime.WEB_PUBLIC_BASE_URL
         globals()["WEB_ASSET_ADD_BUTTON_ENABLED"] = _config_runtime.WEB_ASSET_ADD_BUTTON_ENABLED
         globals()["WEB_TRANSFER_ENABLED"] = _config_runtime.WEB_TRANSFER_ENABLED
@@ -4700,6 +4733,9 @@ async def transfer_start_submit(
             "use_drawn_signatures": True,
         }
     )
+    ok_sd, err_sd = _notify_transfer_created_to_service_desk(transfer_id, tr_new)
+    if not ok_sd:
+        logger.warning("Письмо в сервисдеск о создании перемещения не отправлено: %s", err_sd)
     _write_audit(
         request,
         action="transfer_start",

@@ -134,14 +134,24 @@
             <span class="hero__text--muted">Маршрут</span><br>
             Откуда: {{ from_city_display or "—" }} · Куда: {{ tr.receiver_location_name or tr.to_city or "—" }}
         </p>
-        {% if tr.notification_sent_at or tr.notification_last_error %}
+        {% if tr.accounting_notification_sent_at or tr.accounting_notification_error or tr.notification_sent_at or tr.notification_last_error %}
             <p class="hero__text" style="margin-top: 0.5rem;">
-                <span class="hero__text--muted">Уведомление администратору о скане</span><br>
-                {% if tr.notification_sent_at %}
-                    отправлено {{ tr.notification_sent_at }}
-                {% endif %}
-                {% if tr.notification_last_error %}
-                    <span style="color: #b00020;">Ошибка: {{ tr.notification_last_error }}</span>
+                <span class="hero__text--muted">Рассылка по скану акта</span><br>
+                {% if tr.accounting_notification_sent_at or tr.accounting_notification_error %}
+                    Бухгалтерия:
+                    {% if tr.accounting_notification_sent_at %}
+                        отправлено {{ tr.accounting_notification_sent_at }}
+                    {% endif %}
+                    {% if tr.accounting_notification_error %}
+                        <span style="color: #b00020;">Ошибка: {{ tr.accounting_notification_error }}</span>
+                    {% endif %}
+                {% elif tr.notification_sent_at or tr.notification_last_error %}
+                    {% if tr.notification_sent_at %}
+                        отправлено {{ tr.notification_sent_at }}
+                    {% endif %}
+                    {% if tr.notification_last_error %}
+                        <span style="color: #b00020;">Ошибка: {{ tr.notification_last_error }}</span>
+                    {% endif %}
                 {% endif %}
             </p>
         {% endif %}
