@@ -185,6 +185,14 @@ def _norm_status(value: object) -> str:
     return str(value or "").strip().lower()
 
 
+def _actor_label_from_session(request: Request) -> str:
+    email = str(request.session.get("user_email") or "").strip()
+    fio = str(request.session.get("user_fio") or "").strip()
+    if fio and email and fio != email:
+        return f"{fio} ({email})"
+    return fio or email or "Пользователь"
+
+
 def _admin_new_transfer_count() -> int:
     # Админ подключается, когда заявка на перемещение готова к финальному утверждению.
     return sum(
@@ -4385,6 +4393,7 @@ async def admin_discrepancy_close(
     admin_note: str = Form(""),
 ):
     email = request.session.get("user_email")
+    admin_fio = request.session.get("user_fio")
     is_admin = bool(request.session.get("is_admin"))
     if not email or not is_admin:
         request.session["flash_message"] = "Доступ запрещён."
@@ -4400,8 +4409,11 @@ async def admin_discrepancy_close(
         request.session["flash_message"] = "Недопустимый переход статуса."
         return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
     note = (admin_note or "").strip()
+    resolver = (str(admin_fio or "").strip() or str(email or "").strip() or "Администратор")
+    if email:
+        resolver = f"{resolver} ({email})"
     updated = update_discrepancy_request(
-        request_id, {"status": "closed", "admin_note": note}
+        request_id, {"status": "closed", "admin_note": note, "resolved_by": resolver}
     )
     if updated:
         _notify_discrepancy_user(updated, "status_change")
@@ -4420,6 +4432,7 @@ async def admin_discrepancy_reject(
     admin_note: str = Form(""),
 ):
     email = request.session.get("user_email")
+    admin_fio = request.session.get("user_fio")
     is_admin = bool(request.session.get("is_admin"))
     if not email or not is_admin:
         request.session["flash_message"] = "Доступ запрещён."
@@ -4440,8 +4453,11 @@ async def admin_discrepancy_reject(
             "Укажите комментарий при отклонении заявки."
         )
         return RedirectResponse(url=f"/discrepancy/{request_id}", status_code=302)
+    resolver = (str(admin_fio or "").strip() or str(email or "").strip() or "Администратор")
+    if email:
+        resolver = f"{resolver} ({email})"
     updated = update_discrepancy_request(
-        request_id, {"status": "rejected", "admin_note": note}
+        request_id, {"status": "rejected", "admin_note": note, "resolved_by": resolver}
     )
     if updated:
         _notify_discrepancy_user(updated, "status_change")
@@ -5125,6 +5141,7 @@ async def transfer_reject(request: Request, transfer_id: str):
         {
             "status": "cancelled",
             "cancel_reason": "Отклонено получателем",
+            "resolved_by": _actor_label_from_session(request),
         },
     )
     tr_after = get_transfer(transfer_id) or {}
@@ -5224,7 +5241,10 @@ async def transfer_cancel(request: Request, transfer_id: str):
             "Отмена отправителем на этом этапе недоступна. Обратитесь к администратору."
         )
         return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
-    update_transfer(transfer_id, {"status": "cancelled"})
+    update_transfer(
+        transfer_id,
+        {"status": "cancelled", "resolved_by": _actor_label_from_session(request)},
+    )
     _write_audit(request, action="transfer_cancelled", details=f"transfer_id={transfer_id}")
     request.session["flash_message"] = "Заявка на перемещение техники отменена."
     return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
@@ -5394,6 +5414,7 @@ async def admin_asset_add_approve(
         {
             "status": "approved",
             "finalized_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "resolved_by": _actor_label_from_session(request),
             "admin_finalize_note": (
                 "Подтверждено администратором в вебе. "
                 "Актив обработан в A-Tracker (без проверки статусов заявки)."
@@ -5476,6 +5497,7 @@ async def admin_asset_add_reject(
         {
             "status": "rejected",
             "rejected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "resolved_by": _actor_label_from_session(request),
             "reject_comment": comment,
             "admin_finalize_note": "Отклонено администратором в вебе.",
         },
@@ -5613,6 +5635,7 @@ async def admin_transfer_complete(request: Request, transfer_id: str):
 
     patch = {
         "status": "completed",
+        "resolved_by": _actor_label_from_session(request),
         "operation_number": op_display,
         "posting_last_error": "",
         "attachment_failures": ",".join(failed) if failed else "",

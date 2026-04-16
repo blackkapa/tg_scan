@@ -153,6 +153,12 @@
                 {% endif %}
             </p>
         {% endif %}
+        {% if is_admin and tr.status in ["completed", "cancelled"] and tr.resolved_by %}
+            <p class="hero__text" style="margin-top: 0.5rem;">
+                <span class="hero__text--muted">Кто завершил</span><br>
+                {{ tr.resolved_by }}
+            </p>
+        {% endif %}
         {% if tr.posting_last_error and tr.status != "completed" %}
             <p class="hero__text" style="margin-top: 0.5rem;"><span style="color: #b00020;">Ошибка A-Tracker: {{ tr.posting_last_error }}</span></p>
         {% endif %}

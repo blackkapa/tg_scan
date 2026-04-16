@@ -30,6 +30,9 @@
             {% if req.admin_note %}
             <dt>Комментарий администратора</dt><dd>{{ req.admin_note }}</dd>
             {% endif %}
+            {% if is_admin and req.status in ["closed", "rejected"] and req.resolved_by %}
+            <dt>Кто завершил</dt><dd>{{ req.resolved_by }}</dd>
+            {% endif %}
             {% if req.notify_admin_error %}
             <dt style="color: #b45309;">Уведомление админам</dt><dd style="color: #b45309;">{{ req.notify_admin_error }}</dd>
             {% endif %}
@@ -50,25 +53,31 @@
         {% if is_admin %}
         <h2 class="settings-subtitle" style="margin-top: 1.25rem;">Действия администратора</h2>
         {% set st = req.status %}
-        {% if st == "sent" %}
-        <form method="post" action="/admin/discrepancy/{{ req.id }}/in-review" style="margin-bottom: 0.75rem;">
-            <button type="submit" class="auth-form__button">Взять в работу</button>
-        </form>
-        {% endif %}
         {% if st == "sent" or st == "in_review" %}
-        <form method="post" action="/admin/discrepancy/{{ req.id }}/close" class="auth-form" style="margin-bottom: 0.75rem;">
+        <form method="post" class="auth-form" style="padding: 0.85rem; border: 1px solid #dbe4f0; border-radius: 12px; background: #f8fbff;">
+            <p style="margin: 0 0 0.6rem; color: #475569; font-size: 0.95rem;">
+                Здесь один комментарий: для «Закрыть» можно оставить пустым, для «Отклонить» — обязательно заполнить.
+            </p>
             <label class="auth-form__label">
-                <span class="auth-form__label-text">Комментарий при закрытии</span>
-                <textarea class="auth-form__input" name="admin_note" rows="2" placeholder="Необязательно">{{ req.admin_note or "" }}</textarea>
+                <span class="auth-form__label-text">Комментарий администратора</span>
+                <textarea id="admin-note" class="auth-form__input" name="admin_note" rows="3" placeholder="Например: проверили, всё ок">{{ req.admin_note or "" }}</textarea>
             </label>
-            <button type="submit" class="auth-form__button">Закрыть заявку</button>
-        </form>
-        <form method="post" action="/admin/discrepancy/{{ req.id }}/reject" class="auth-form">
-            <label class="auth-form__label">
-                <span class="auth-form__label-text">Текст при отклонении (обязательно)</span>
-                <textarea class="auth-form__input" name="admin_note" rows="2" required placeholder="Укажите причину отклонения"></textarea>
-            </label>
-            <button type="submit" class="auth-form__button" style="background: #7f1d1d;">Отклонить</button>
+            <div style="display: grid; gap: 0.65rem;">
+                <button type="submit"
+                        class="auth-form__button"
+                        formaction="/admin/discrepancy/{{ req.id }}/close"
+                        formmethod="post">
+                    Подтвердить и закрыть
+                </button>
+                <button type="submit"
+                        class="auth-form__button"
+                        style="background: #991b1b;"
+                        formaction="/admin/discrepancy/{{ req.id }}/reject"
+                        formmethod="post"
+                        onclick="if(!document.getElementById('admin-note').value.trim()){alert('Напишите, почему отклоняете заявку.'); return false;} return true;">
+                    Отклонить заявку
+                </button>
+            </div>
         </form>
         {% endif %}
         <p style="margin-top: 1rem;"><a href="/admin/discrepancies" class="assets-list__link">Все заявки несоответствий</a></p>

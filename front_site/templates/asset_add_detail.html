@@ -75,6 +75,14 @@
                     <div class="assets-list__meta">{{ req.sd_request_number or "—" }}</div>
                 </div>
             </div>
+            {% if is_admin and req.status in ["approved", "rejected"] and req.resolved_by %}
+            <div class="assets-list__item">
+                <div class="assets-list__main">
+                    <div class="assets-list__name">Кто завершил</div>
+                    <div class="assets-list__meta">{{ req.resolved_by }}</div>
+                </div>
+            </div>
+            {% endif %}
             {% if req.atracker_req_number %}
                 <div class="assets-list__item">
                     <div class="assets-list__main">
