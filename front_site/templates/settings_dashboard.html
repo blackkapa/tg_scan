@@ -57,6 +57,14 @@
                                    {% if config.web_asset_add_button_enabled %}checked{% endif %}>
                             <span>Включить блок «Добавить технику»: кнопка на «Мои активы», форма /asset-add/start, просмотр заявок /asset-add/…, список в разделе «Заявки» и в «Добавление техники (админ)». Если снять — всё это скрыто и недоступно по прямым ссылкам (редирект в список активов или админ-раздел).</span>
                         </label>
+                        <label class="settings-checkbox-label" style="margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox"
+                                   name="web_discrepancy_button_enabled"
+                                   value="1"
+                                   style="margin-top: 0.2rem;"
+                                   {% if config.web_discrepancy_button_enabled %}checked{% endif %}>
+                            <span>Показывать кнопку «Сообщить о несоответствии» на «Мои активы». Если снять — кнопка скрыта; форма /discrepancy/start и заявки в «Заявках» остаются, если контур включён в config.ini (discrepancy_enabled).</span>
+                        </label>
                     </div>
 
                     <h2 class="settings-subtitle">Email / домены</h2>

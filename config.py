@@ -114,10 +114,14 @@ WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
 # «Сообщить о несоответствии»: форма, список в «Заявках», /admin/discrepancies (false — отключить контур)
 WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
 
+# Кнопка «Сообщить о несоответствии» на /assets (false — скрыть кнопку; маршруты /discrepancy/* остаются при discrepancy_enabled)
+WEB_DISCREPANCY_BUTTON_ENABLED = _getbool("web", "discrepancy_button_enabled", True)
+
 def reload_web_flags_from_disk() -> None:
     """Перечитать config.ini и обновить runtime-настройки [web]/[email] в памяти."""
     global _cfg
-    global WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED, WEB_DISCREPANCY_ENABLED
+    global WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED
+    global WEB_DISCREPANCY_ENABLED, WEB_DISCREPANCY_BUTTON_ENABLED
     global ADMIN_EMAILS, BYPASS_CODE_EMAILS, EMAIL_DOMAIN_ALLOWED
     global TRANSFER_NOTIFICATION_TO, TRANSFER_ADMIN_CONFIRM_EMAIL
     _cfg = ConfigParser()
@@ -134,6 +138,7 @@ def reload_web_flags_from_disk() -> None:
     WEB_ASSET_ADD_BUTTON_ENABLED = _getbool("web", "asset_add_button_enabled", True)
     WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
     WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
+    WEB_DISCREPANCY_BUTTON_ENABLED = _getbool("web", "discrepancy_button_enabled", True)
 
 
 # ID кастомного сервиса A-Tracker: утверждение перемещения (как мастер OneLineTransit2). 0 — не вызывать.

@@ -52,6 +52,7 @@ from config import (
     WEB_ASSET_ADD_BUTTON_ENABLED,
     WEB_TRANSFER_ENABLED,
     WEB_DISCREPANCY_ENABLED,
+    WEB_DISCREPANCY_BUTTON_ENABLED,
     reload_web_flags_from_disk,
     _CONFIG_PATH as CONFIG_PATH,
 )
@@ -275,6 +276,7 @@ def render_template(name: str, context: dict, status_code: int = 200) -> HTMLRes
     ctx.setdefault("transfer_requests_enabled", WEB_TRANSFER_ENABLED)
     ctx.setdefault("asset_add_button_enabled", WEB_ASSET_ADD_BUTTON_ENABLED)
     ctx.setdefault("discrepancy_enabled", WEB_DISCREPANCY_ENABLED)
+    ctx.setdefault("discrepancy_button_enabled", WEB_DISCREPANCY_BUTTON_ENABLED)
     if request is not None and bool(request.session.get("is_admin")):
         # Индикаторы в шапке: показываем только заявки, где от админа ожидается действие.
         ctx["admin_transfer_new_count"] = (
@@ -2382,6 +2384,7 @@ def _save_settings_config(
     web_public_base_url: str = "",
     web_asset_add_button_enabled: bool = True,
     web_transfer_enabled: bool = True,
+    web_discrepancy_button_enabled: bool = True,
 ) -> None:
     cfg = _load_settings_config()
 
@@ -2410,6 +2413,11 @@ def _save_settings_config(
     cfg.set("web", "public_base_url", (web_public_base_url or "").strip())
     cfg.set("web", "asset_add_button_enabled", "true" if web_asset_add_button_enabled else "false")
     cfg.set("web", "transfer_enabled", "true" if web_transfer_enabled else "false")
+    cfg.set(
+        "web",
+        "discrepancy_button_enabled",
+        "true" if web_discrepancy_button_enabled else "false",
+    )
 
     _ensure_section(cfg, "smtp")
     if smtp_host:
@@ -2595,12 +2603,17 @@ async def settings_page(request: Request) -> HTMLResponse:
     web_public_base_url = ""
     web_asset_add_button_enabled = True
     web_transfer_enabled = True
+    web_discrepancy_button_enabled = True
     if cfg.has_section("web"):
         web_public_base_url = cfg.get("web", "public_base_url", fallback="")
         _aae = (cfg.get("web", "asset_add_button_enabled", fallback="true") or "true").strip().lower()
         web_asset_add_button_enabled = _aae not in ("0", "false", "no", "off")
         _te = (cfg.get("web", "transfer_enabled", fallback="true") or "true").strip().lower()
         web_transfer_enabled = _te not in ("0", "false", "no", "off")
+        _dbe = (
+            cfg.get("web", "discrepancy_button_enabled", fallback="true") or "true"
+        ).strip().lower()
+        web_discrepancy_button_enabled = _dbe not in ("0", "false", "no", "off")
 
     # Фильтры для читаемости аудита (по query-параметрам)
     try:
@@ -2669,6 +2682,7 @@ async def settings_page(request: Request) -> HTMLResponse:
             "web_public_base_url": web_public_base_url,
             "web_asset_add_button_enabled": web_asset_add_button_enabled,
             "web_transfer_enabled": web_transfer_enabled,
+            "web_discrepancy_button_enabled": web_discrepancy_button_enabled,
             "smtp_host": smtp_host,
             "smtp_port": smtp_port,
             "smtp_use_ssl": smtp_use_ssl,
@@ -2712,6 +2726,7 @@ async def settings_save(
     web_public_base_url: str = Form(""),
     web_asset_add_button_enabled: str = Form("0"),
     web_transfer_enabled: str = Form("0"),
+    web_discrepancy_button_enabled: str = Form("0"),
 ):
     """Сохранение настроек в config.ini и попытка перезапуска сервиса."""
     if not request.session.get("settings_ok"):
@@ -2737,6 +2752,9 @@ async def settings_save(
             web_public_base_url=web_public_base_url,
             web_asset_add_button_enabled=(str(web_asset_add_button_enabled).strip() == "1"),
             web_transfer_enabled=(str(web_transfer_enabled).strip() == "1"),
+            web_discrepancy_button_enabled=(
+                str(web_discrepancy_button_enabled).strip() == "1"
+            ),
         )
         reload_web_flags_from_disk()
         globals()["EMAIL_DOMAIN_ALLOWED"] = _config_runtime.EMAIL_DOMAIN_ALLOWED
@@ -2747,6 +2765,10 @@ async def settings_save(
         globals()["WEB_PUBLIC_BASE_URL"] = _config_runtime.WEB_PUBLIC_BASE_URL
         globals()["WEB_ASSET_ADD_BUTTON_ENABLED"] = _config_runtime.WEB_ASSET_ADD_BUTTON_ENABLED
         globals()["WEB_TRANSFER_ENABLED"] = _config_runtime.WEB_TRANSFER_ENABLED
+        globals()["WEB_DISCREPANCY_ENABLED"] = _config_runtime.WEB_DISCREPANCY_ENABLED
+        globals()["WEB_DISCREPANCY_BUTTON_ENABLED"] = (
+            _config_runtime.WEB_DISCREPANCY_BUTTON_ENABLED
+        )
         restarted = _restart_front_site_service()
         if restarted:
             msg = "Настройки сохранены и сервис перезапущен."
@@ -2964,6 +2986,7 @@ async def assets_page(request: Request):
         "message": request.session.pop("flash_message", None),
         "asset_add_button_enabled": WEB_ASSET_ADD_BUTTON_ENABLED,
         "discrepancy_enabled": WEB_DISCREPANCY_ENABLED,
+        "discrepancy_button_enabled": WEB_DISCREPANCY_BUTTON_ENABLED,
     }
     return render_template("assets.html", context)
 
@@ -4285,11 +4308,12 @@ async def discrepancy_start_post(
     except ValueError as ex:
         request.session["flash_message"] = str(ex) or "Ошибка сохранения заявки."
         return RedirectResponse(url="/discrepancy/start", status_code=302)
-    ok, err = _notify_discrepancy_created(created)
-    if not ok:
-        update_discrepancy_request(
-            req_id, {"notify_admin_error": err or "ошибка отправки админам"}
-        )
+    # Временно отключено: письмо в сервисдеск при создании заявки о несоответствии.
+    # ok, err = _notify_discrepancy_created(created)
+    # if not ok:
+    #     update_discrepancy_request(
+    #         req_id, {"notify_admin_error": err or "ошибка отправки админам"}
+    #     )
     _write_audit(
         request,
         action="discrepancy_create",
