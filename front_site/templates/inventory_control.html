@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+
+{% block title %}Контроль инвентаризации сотрудников{% endblock %}
+
+{% block content %}
+<section class="hero" style="padding-top: 1.5rem;">
+    <div class="hero__card hero__card--wide" style="max-width: 1200px; width: 100%;">
+        
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
+            <div>
+                <h1 class="hero__title" style="margin: 0; font-size: 1.6rem;">Контроль инвентаризации сотрудников</h1>
+                <p class="hero__text" style="margin-top: 0.25rem; font-size: 0.95rem; color: #555;">
+                    Мониторинг прохождения инвентаризации по целевому списку сотрудников.
+                </p>
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button type="button" class="auth-form__button" style="padding: 0.55rem 1rem; font-size: 0.9rem;" onclick="openAddModal()">
+                    + Добавить сотрудников
+                </button>
+                <form method="post" action="/admin/inventory-control/refresh-all" style="display: inline;" onsubmit="showLoadingOverlay('Обновление данных всех сотрудников...')">
+                    <button type="submit" class="assets-list__link-button" style="padding: 0.55rem 1rem; font-size: 0.9rem; background: #eef4fb; border-color: #ccd9e8;">
+                        🔄 Обновить всех
+                    </button>
+                </form>
+                <a href="/admin/inventory-control/export-csv" class="assets-list__link-button" style="padding: 0.55rem 1rem; font-size: 0.9rem; text-decoration: none; display: inline-flex; align-items: center; background: #f4f6f8; border-color: #d1d5db;">
+                    📥 Скачать Excel (CSV)
+                </a>
+            </div>
+        </div>
+
+        {% if message %}
+            <p class="auth-form__message" style="margin-bottom: 1.25rem;">{{ message }}</p>
+        {% endif %}
+
+        <!-- KPI Cards -->
+        <div class="inv-kpi-grid">
+            <div class="inv-kpi-card">
+                <div class="inv-kpi-card__num">{{ stats.total_count }}</div>
+                <div class="inv-kpi-card__label">Всего на контроле</div>
+            </div>
+            <div class="inv-kpi-card inv-kpi-card--success">
+                <div class="inv-kpi-card__num">{{ stats.completed_count }}</div>
+                <div class="inv-kpi-card__label">Завершили (100%)</div>
+            </div>
+            <div class="inv-kpi-card inv-kpi-card--warning">
+                <div class="inv-kpi-card__num">{{ stats.in_progress_count }}</div>
+                <div class="inv-kpi-card__label">В процессе</div>
+            </div>
+            <div class="inv-kpi-card inv-kpi-card--danger">
+                <div class="inv-kpi-card__num">{{ stats.not_started_count }}</div>
+                <div class="inv-kpi-card__label">Не приступали</div>
+            </div>
+            <div class="inv-kpi-card inv-kpi-card--neutral">
+                <div class="inv-kpi-card__num">{{ stats.no_assets_count }}</div>
+                <div class="inv-kpi-card__label">Без техники</div>
+            </div>
+            <div class="inv-kpi-card inv-kpi-card--primary">
+                <div class="inv-kpi-card__num">{{ stats.inventoried_assets_total }} / {{ stats.assets_total }}</div>
+                <div class="inv-kpi-card__label">Единиц проверено ({{ stats.overall_assets_pct }}%)</div>
+            </div>
+        </div>
+
+        <!-- Filters & Search Toolbar -->
+        <div class="inv-toolbar">
+            <div class="inv-toolbar__search">
+                <input type="text" id="employeeSearchInput" placeholder="Поиск по ФИО, email, логину..." class="auth-form__input" style="margin: 0; padding: 0.5rem 0.75rem; font-size: 0.9rem;" oninput="applyFilters()">
+            </div>
+            <div class="inv-toolbar__filters" id="statusFilterButtons">
+                <button type="button" class="inv-filter-btn inv-filter-btn--active" data-status="all" onclick="setStatusFilter('all', this)">Все ({{ stats.total_count }})</button>
+                <button type="button" class="inv-filter-btn" data-status="completed" onclick="setStatusFilter('completed', this)">Пройдена ({{ stats.completed_count }})</button>
+                <button type="button" class="inv-filter-btn" data-status="in_progress" onclick="setStatusFilter('in_progress', this)">В процессе ({{ stats.in_progress_count }})</button>
+                <button type="button" class="inv-filter-btn" data-status="not_started" onclick="setStatusFilter('not_started', this)">Не начата ({{ stats.not_started_count }})</button>
+                <button type="button" class="inv-filter-btn" data-status="no_assets" onclick="setStatusFilter('no_assets', this)">Без техники ({{ stats.no_assets_count }})</button>
+            </div>
+        </div>
+
+        <!-- Main Table -->
+        {% if employees %}
+            <div class="inv-table-wrapper">
+                <table class="inv-table" id="employeesTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 28%;">Сотрудник</th>
+                            <th style="width: 14%;">Статус</th>
+                            <th style="width: 22%;">Прогресс инвентаризации</th>
+                            <th style="width: 16%;">Посл. проверка</th>
+                            <th style="width: 20%; text-align: right;">Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for emp in employees %}
+                            <tr class="inv-row" data-status="{{ emp.status }}" data-search="{{ emp.fio|lower }} {{ emp.email|lower }} {{ emp.login|lower }}">
+                                <td>
+                                    <div class="inv-emp-fio"><strong>{{ emp.fio }}</strong></div>
+                                    <div class="inv-emp-sub">
+                                        {% if emp.email %}<a href="mailto:{{ emp.email }}" style="color: inherit; text-decoration: underline;">{{ emp.email }}</a>{% else %}—{% endif %}
+                                        {% if emp.login %}<span style="color: #888; margin-left: 0.35rem;">({{ emp.login }})</span>{% endif %}
+                                    </div>
+                                    {% if emp.check_error %}
+                                        <div style="font-size: 0.75rem; color: #c53030; margin-top: 0.2rem;">⚠️ {{ emp.check_error }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if emp.status == 'completed' %}
+                                        <span class="inv-badge inv-badge--success">✓ Пройдена</span>
+                                    {% elif emp.status == 'in_progress' %}
+                                        <span class="inv-badge inv-badge--warning">⏳ В процессе</span>
+                                    {% elif emp.status == 'not_started' %}
+                                        <span class="inv-badge inv-badge--danger">✖ Не начата</span>
+                                    {% elif emp.status == 'no_assets' %}
+                                        <span class="inv-badge inv-badge--neutral">⚪ Нет техники</span>
+                                    {% else %}
+                                        <span class="inv-badge inv-badge--error">⚠️ Ошибка</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if emp.status == 'no_assets' %}
+                                        <span style="font-size: 0.85rem; color: #777;">0 единиц в учёте</span>
+                                    {% else %}
+                                        <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 0.25rem;">
+                                            <span><strong>{{ emp.inventoried_assets }}</strong> из {{ emp.total_assets }} шт.</span>
+                                            <span><strong>{{ emp.progress_pct }}%</strong></span>
+                                        </div>
+                                        <div class="inv-progress-bar">
+                                            <div class="inv-progress-fill {% if emp.progress_pct == 100 %}inv-progress-fill--success{% elif emp.progress_pct > 0 %}inv-progress-fill--warning{% else %}inv-progress-fill--empty{% endif %}" style="width: {{ emp.progress_pct }}%;"></div>
+                                        </div>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div style="font-size: 0.85rem; color: #444;">{{ emp.last_checked_at or "—" }}</div>
+                                    {% if emp.completed_at %}
+                                        <div style="font-size: 0.75rem; color: #2e7d32;">Завершена: {{ emp.completed_at }}</div>
+                                    {% endif %}
+                                    {% if emp.last_reminded_at %}
+                                        <div style="font-size: 0.75rem; color: #6b7280;" title="Отправлено напоминаний: {{ emp.remind_count }}">
+                                            ✉️ Напомнили: {{ emp.last_reminded_at[:10] }} ({{ emp.remind_count }})
+                                        </div>
+                                    {% endif %}
+                                </td>
+                                <td style="text-align: right;">
+                                    <div class="inv-actions">
+                                        <!-- Кнопка детализации техники -->
+                                        <button type="button" class="inv-action-btn" title="Посмотреть список техники" onclick='openAssetsModal({{ emp.assets_snapshot|tojson }}, "{{ emp.fio|escape }}", "{{ emp.status }}", {{ emp.inventoried_assets }}, {{ emp.total_assets }})'>
+                                            🔍 Техника ({{ emp.total_assets }})
+                                        </button>
+
+                                        <!-- Обновить одного -->
+                                        <form method="post" action="/admin/inventory-control/{{ emp.id }}/refresh" style="display: inline;">
+                                            <button type="submit" class="inv-action-btn" title="Обновить статус из A-Tracker">
+                                                🔄
+                                            </button>
+                                        </form>
+
+                                        <!-- Напомнить на email (если не завершено и есть email и техника > 0) -->
+                                        {% if emp.email and emp.status != 'completed' and emp.status != 'no_assets' %}
+                                            <form method="post" action="/admin/inventory-control/{{ emp.id }}/remind" style="display: inline;" onsubmit="return confirm('Отправить письмо-напоминание на {{ emp.email }}?');">
+                                                <button type="submit" class="inv-action-btn inv-action-btn--mail" title="Отправить напоминание на почту">
+                                                    ✉️
+                                                </button>
+                                            </form>
+                                        {% endif %}
+
+                                        <!-- Удалить из мониторинга -->
+                                        <form method="post" action="/admin/inventory-control/{{ emp.id }}/delete" style="display: inline;" onsubmit="return confirm('Удалить сотрудника {{ emp.fio }} из списка контроля?');">
+                                            <button type="submit" class="inv-action-btn inv-action-btn--delete" title="Удалить из списка контроля">
+                                                🗑️
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div style="text-align: center; padding: 3rem 1rem; background: #f9fafb; border: 1px dashed #d1d5db; border-radius: 12px; margin-top: 1rem;">
+                <p style="font-size: 1.1rem; color: #4b5563; margin-bottom: 1rem;">Список контролируемых сотрудников пока пуст.</p>
+                <button type="button" class="auth-form__button" style="display: inline-block; width: auto; padding: 0.6rem 1.5rem;" onclick="openAddModal()">
+                    + Добавить первых сотрудников
+                </button>
+            </div>
+        {% endif %}
+
+    </div>
+</section>
+
+<!-- Модальное окно: Добавление сотрудников -->
+<div id="addModal" class="inv-modal" style="display: none;">
+    <div class="inv-modal__backdrop" onclick="closeAddModal()"></div>
+    <div class="inv-modal__content">
+        <div class="inv-modal__header">
+            <h2 style="margin: 0; font-size: 1.25rem;">Добавить сотрудников на контроль</h2>
+            <button type="button" class="inv-modal__close" onclick="closeAddModal()">&times;</button>
+        </div>
+
+        <div class="inv-modal__tabs">
+            <button type="button" class="inv-tab-btn inv-tab-btn--active" onclick="switchAddTab('single')">По одному (поиск)</button>
+            <button type="button" class="inv-tab-btn" onclick="switchAddTab('batch')">Списком (email / логины)</button>
+        </div>
+
+        <!-- Вкладка 1: Одиночное добавление -->
+        <div id="tabSingle" class="inv-tab-content">
+            <form method="post" action="/admin/inventory-control/add" class="auth-form" onsubmit="showLoadingOverlay('Поиск и загрузка активов из A-Tracker...')">
+                <label class="auth-form__label">
+                    <span>ФИО, email или логин сотрудника</span>
+                    <input type="text" name="identifier" class="auth-form__input" placeholder="ivanov@asg.ru или Иванов Иван" required>
+                    <small style="color: #666; display: block; margin-top: 0.25rem;">
+                        Система проверит сотрудника в A-Tracker и сразу загрузит список его техники.
+                    </small>
+                </label>
+                <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+                    <button type="button" class="assets-list__link-button" onclick="closeAddModal()">Отмена</button>
+                    <button type="submit" class="auth-form__button" style="width: auto; padding: 0.6rem 1.5rem;">Добавить</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Вкладка 2: Массовое добавление -->
+        <div id="tabBatch" class="inv-tab-content" style="display: none;">
+            <form method="post" action="/admin/inventory-control/batch-add" class="auth-form" onsubmit="showLoadingOverlay('Обработка списка сотрудников...')">
+                <label class="auth-form__label">
+                    <span>Список email или логинов (каждый с новой строки или через запятую)</span>
+                    <textarea name="batch_text" rows="7" class="auth-form__input" placeholder="ivanov@asg.ru&#10;petrov@asg.ru&#10;sidorov@asg.ru" required style="resize: vertical; font-family: monospace;"></textarea>
+                    <small style="color: #666; display: block; margin-top: 0.25rem;">
+                        Укажите корпоративные адреса. Система сопоставит каждого с базой A-Tracker и добавит на мониторинг.
+                    </small>
+                </label>
+                <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+                    <button type="button" class="assets-list__link-button" onclick="closeAddModal()">Отмена</button>
+                    <button type="submit" class="auth-form__button" style="width: auto; padding: 0.6rem 1.5rem;">Добавить всех</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Детализация техники сотрудника -->
+<div id="assetsModal" class="inv-modal" style="display: none;">
+    <div class="inv-modal__backdrop" onclick="closeAssetsModal()"></div>
+    <div class="inv-modal__content inv-modal__content--wide">
+        <div class="inv-modal__header">
+            <div>
+                <h2 style="margin: 0; font-size: 1.25rem;" id="modalEmployeeFio">Техника сотрудника</h2>
+                <div id="modalEmployeeSub" style="font-size: 0.85rem; color: #666; margin-top: 0.2rem;"></div>
+            </div>
+            <button type="button" class="inv-modal__close" onclick="closeAssetsModal()">&times;</button>
+        </div>
+
+        <div id="modalAssetsBody" style="max-height: 60vh; overflow-y: auto; margin-top: 1rem;">
+            <!-- Наполняется динамически через JS -->
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
+            <button type="button" class="auth-form__button" style="width: auto; padding: 0.5rem 1.5rem;" onclick="closeAssetsModal()">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Overlay -->
+<div id="loadingOverlay" class="inv-loading-overlay" style="display: none;">
+    <div class="inv-loading-box">
+        <div class="inv-spinner"></div>
+        <div id="loadingText" style="margin-top: 0.75rem; font-weight: 500; font-size: 0.95rem;">Загрузка...</div>
+    </div>
+</div>
+
+<script>
+let currentStatusFilter = 'all';
+
+function applyFilters() {
+    const query = (document.getElementById('employeeSearchInput').value || '').toLowerCase().trim();
+    const rows = document.querySelectorAll('#employeesTable tbody tr');
+    
+    rows.forEach(row => {
+        const rowStatus = row.getAttribute('data-status');
+        const rowSearch = row.getAttribute('data-search') || '';
+        
+        const matchStatus = (currentStatusFilter === 'all') || (rowStatus === currentStatusFilter);
+        const matchQuery = !query || rowSearch.includes(query);
+        
+        if (matchStatus && matchQuery) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+function setStatusFilter(status, btn) {
+    currentStatusFilter = status;
+    document.querySelectorAll('.inv-filter-btn').forEach(b => b.classList.remove('inv-filter-btn--active'));
+    btn.classList.add('inv-filter-btn--active');
+    applyFilters();
+}
+
+function openAddModal() {
+    document.getElementById('addModal').style.display = 'flex';
+}
+
+function closeAddModal() {
+    document.getElementById('addModal').style.display = 'none';
+}
+
+function switchAddTab(tab) {
+    const btnSingle = document.querySelectorAll('.inv-modal__tabs button')[0];
+    const btnBatch = document.querySelectorAll('.inv-modal__tabs button')[1];
+    const tabSingle = document.getElementById('tabSingle');
+    const tabBatch = document.getElementById('tabBatch');
+    
+    if (tab === 'single') {
+        btnSingle.classList.add('inv-tab-btn--active');
+        btnBatch.classList.remove('inv-tab-btn--active');
+        tabSingle.style.display = 'block';
+        tabBatch.style.display = 'none';
+    } else {
+        btnBatch.classList.add('inv-tab-btn--active');
+        btnSingle.classList.remove('inv-tab-btn--active');
+        tabBatch.style.display = 'block';
+        tabSingle.style.display = 'none';
+    }
+}
+
+function openAssetsModal(assets, fio, status, invCount, totalCount) {
+    document.getElementById('modalEmployeeFio').textContent = fio;
+    document.getElementById('modalEmployeeSub').textContent = `Проведено: ${invCount} из ${totalCount} ед. техники`;
+    
+    const body = document.getElementById('modalAssetsBody');
+    if (!assets || assets.length === 0) {
+        body.innerHTML = '<div style="padding: 2rem; text-align: center; color: #666;">У сотрудника нет зарегистрированной техники в A-Tracker.</div>';
+    } else {
+        let html = '<div class="inv-assets-list">';
+        assets.forEach(a => {
+            const isDone = a.inventoried;
+            html += `
+                <div class="inv-asset-card ${isDone ? 'inv-asset-card--done' : 'inv-asset-card--pending'}">
+                    <div style="font-size: 1.25rem; line-height: 1;">${isDone ? '✅' : '❌'}</div>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 0.95rem; color: #1e293b;">${escapeHtml(a.name)}</div>
+                        <div style="font-size: 0.82rem; color: #64748b; margin-top: 0.2rem;">
+                            Инв. №: <strong>${escapeHtml(a.invent || '—')}</strong> &nbsp;|&nbsp; Сер. №: <strong>${escapeHtml(a.serial || '—')}</strong>
+                        </div>
+                    </div>
+                    <div>
+                        <span class="inv-badge ${isDone ? 'inv-badge--success' : 'inv-badge--danger'}">
+                            ${isDone ? 'Проведён' : 'Не проведён'}
+                        </span>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        body.innerHTML = html;
+    }
+    
+    document.getElementById('assetsModal').style.display = 'flex';
+}
+
+function closeAssetsModal() {
+    document.getElementById('assetsModal').style.display = 'none';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return text.toString()
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function showLoadingOverlay(text) {
+    if (text) document.getElementById('loadingText').textContent = text;
+    document.getElementById('loadingOverlay').style.display = 'flex';
+}
+</script>
+{% endblock %}

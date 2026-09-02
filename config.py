@@ -42,8 +42,24 @@ def _getbool(section: str, key: str, fallback: bool = False) -> bool:
     return fallback
 
 
+def _normalize_atracker_url(url: str) -> str:
+    """Без завершающего /; www.atrdbapp.ovp.ru в DNS нет — только atrdbapp.ovp.ru."""
+    u = (url or "").strip().rstrip("/")
+    return u.replace("://www.atrdbapp.ovp.ru", "://atrdbapp.ovp.ru")
+
+
 # --- A-Tracker (кроме URL, логина, пароля — из INI) ---
-ATRACKER_BASE_URL = _get("atracker", "base_url", "http://10.115.21.77")
+ATRACKER_BASE_URL = _normalize_atracker_url(
+    _get("atracker", "base_url", "https://atrdbapp.ovp.ru")
+)
+# false — HTTPS с шифрованием, но без проверки внутреннего сертификата (типично для IIS в домене)
+ATRACKER_VERIFY_SSL = _getbool("atracker", "verify_ssl", False)
+ATRACKER_CA_BUNDLE = _get("atracker", "ca_bundle", "")
+# На сервере A-Tracker: 127.0.0.1 — TCP локально, SNI/Host остаётся из base_url (обход hairpin / 10054)
+ATRACKER_CONNECT_VIA = _get("atracker", "connect_via", "")
+
+# --- AD → A-Tracker (sync_ad_atracker.py): готовая JSON-выгрузка пользователей ---
+AD_EXPORT_PATH = _get("ad", "export_path", "data/ad_export.json")
 ATRACKER_USERNAME = _get("atracker", "username", "admin")
 ATRACKER_PASSWORD = _get("atracker", "password", "")
 

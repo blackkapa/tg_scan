@@ -19,6 +19,12 @@ venv/
 # Логи
 *.log
 
-# front_site: заявки на передачу и загруженные сканы
-front_site/data/transfers.json
+# front_site: заявки на передачу, контроль, добавление и загруженные сканы
+front_site/data/*.json
+!front_site/data/.gitkeep
 front_site/uploads/
+front_site/logs/
+
+# Снимки кода перед миграцией (копии не коммитим; README — да)
+migration_code_backup/*
+!migration_code_backup/README.txt

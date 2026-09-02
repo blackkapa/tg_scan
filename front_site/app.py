@@ -27,6 +27,8 @@ from xml.sax.saxutils import escape
 # Берём настройки и клиент A-Tracker из существующего кода, но здесь пока только инициализируем.
 from config import (
     ATRACKER_BASE_URL,
+    ATRACKER_VERIFY_SSL,
+    ATRACKER_CA_BUNDLE,
     ATRACKER_USERNAME,
     ATRACKER_PASSWORD,
     ATRACKER_ASSETS_SERVICE_ID,
@@ -84,6 +86,23 @@ from .discrepancy_requests import (
     list_discrepancy_for_email,
     list_discrepancy_requests,
     update_discrepancy_request,
+)
+import asyncio
+from .inventory_control import (
+    STATUS_COMPLETED,
+    STATUS_IN_PROGRESS,
+    STATUS_NOT_STARTED,
+    STATUS_NO_ASSETS,
+    STATUS_ERROR,
+    STATUS_LABELS,
+    list_controlled_employees,
+    get_controlled_employee,
+    get_controlled_employee_by_email,
+    save_controlled_employee,
+    delete_controlled_employee,
+    refresh_controlled_employee,
+    refresh_all_controlled_employees,
+    generate_inventory_control_csv,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -333,6 +352,8 @@ def _build_atracker_client() -> ATrackerClient:
         portfolio_update_service_id=ATRACKER_PORTFOLIO_UPDATE_SERVICE_ID,
         request_attach_service_id=ATRACKER_REQUEST_ATTACH_SERVICE_ID,
         asset_find_by_serial_service_id=ATRACKER_ASSET_FIND_BY_SERIAL_SERVICE_ID,
+        verify_ssl=ATRACKER_VERIFY_SSL,
+        ca_bundle=ATRACKER_CA_BUNDLE,
     )
 
 
@@ -5715,6 +5736,375 @@ async def admin_transfer_complete(request: Request, transfer_id: str):
     else:
         request.session["flash_message"] = f"Заявка на перемещение техники завершена. {op_label}."
     return RedirectResponse(url=f"/transfers/{transfer_id}", status_code=302)
+
+
+# =============================================================================
+# РАЗДЕЛ: КОНТРОЛЬ И МОНИТОРИНГ ИНВЕНТАРИЗАЦИИ СОТРУДНИКОВ (АДМИН)
+# =============================================================================
+
+@app.on_event("startup")
+async def _start_background_inventory_control_scheduler():
+    """Фоновый планировщик: ежедневно автоматически обновляет статусы всех сотрудников на контроле."""
+    async def _inventory_scheduler_loop():
+        # Даем серверу запуститься перед первым фоновым опросом
+        await asyncio.sleep(15)
+        while True:
+            try:
+                client = _build_atracker_client()
+                logger.info("Auto-refreshing inventory control employees status...")
+                await refresh_all_controlled_employees(
+                    client,
+                    _is_asset_inventoried,
+                    inventory_number_from_atracker_dict,
+                )
+                logger.info("Auto-refresh inventory control completed.")
+            except Exception as ex:
+                logger.error("Error in inventory scheduler loop: %s", ex)
+            # Повторяем каждые 12 часов (43200 секунд)
+            await asyncio.sleep(43200)
+
+    asyncio.create_task(_inventory_scheduler_loop())
+
+
+@app.get("/admin/inventory-control", response_class=HTMLResponse)
+async def admin_inventory_control_dashboard(request: Request):
+    """Главный дашборд контроля инвентаризации сотрудников."""
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    is_admin = bool(request.session.get("is_admin"))
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not is_admin:
+        request.session["flash_message"] = "Доступ в раздел контроля ограничен."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    employees = list_controlled_employees()
+    # Сортируем: сначала те, у кого в процессе или не начата, затем завершенные
+    def _sort_key(item: dict):
+        st = item.get("status", "")
+        prio = {
+            STATUS_IN_PROGRESS: 1,
+            STATUS_NOT_STARTED: 2,
+            STATUS_ERROR: 3,
+            STATUS_COMPLETED: 4,
+            STATUS_NO_ASSETS: 5,
+        }.get(st, 9)
+        return (prio, item.get("fio") or "")
+
+    employees.sort(key=_sort_key)
+
+    total_count = len(employees)
+    completed_count = sum(1 for e in employees if e.get("status") == STATUS_COMPLETED)
+    in_progress_count = sum(1 for e in employees if e.get("status") == STATUS_IN_PROGRESS)
+    not_started_count = sum(1 for e in employees if e.get("status") == STATUS_NOT_STARTED)
+    no_assets_count = sum(1 for e in employees if e.get("status") == STATUS_NO_ASSETS)
+    assets_total = sum(int(e.get("total_assets") or 0) for e in employees)
+    inventoried_assets_total = sum(int(e.get("inventoried_assets") or 0) for e in employees)
+    overall_assets_pct = round((inventoried_assets_total / assets_total * 100)) if assets_total > 0 else 0
+
+    stats = {
+        "total_count": total_count,
+        "completed_count": completed_count,
+        "in_progress_count": in_progress_count,
+        "not_started_count": not_started_count,
+        "no_assets_count": no_assets_count,
+        "assets_total": assets_total,
+        "inventoried_assets_total": inventoried_assets_total,
+        "overall_assets_pct": overall_assets_pct,
+    }
+
+    context = {
+        "request": request,
+        "title": "Контроль инвентаризации сотрудников",
+        "employees": employees,
+        "stats": stats,
+        "message": request.session.pop("flash_message", None),
+    }
+    return render_template("inventory_control.html", context)
+
+
+@app.post("/admin/inventory-control/add")
+async def admin_inventory_control_add_single(
+    request: Request,
+    identifier: str = Form(""),
+):
+    """Поиск и добавление одного сотрудника на контроль."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        request.session["flash_message"] = "Доступ ограничен."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    raw_ident = (identifier or "").strip()
+    if not raw_ident:
+        request.session["flash_message"] = "Укажите ФИО, email или логин сотрудника."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    client = _build_atracker_client()
+    try:
+        all_emp = await client.get_employees()
+    except Exception as ex:
+        request.session["flash_message"] = f"Не удалось получить список сотрудников из A-Tracker: {ex}"
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    target_fio, target_email, err = find_employee_by_input(all_emp or [], raw_ident, EMAIL_DOMAIN_ALLOWED)
+    if err or not target_fio:
+        request.session["flash_message"] = err or "Сотрудник не найден в системе учёта."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    # Ищем дополнительную инфу (логин) из списка сотрудников
+    target_login = ""
+    for emp in all_emp or []:
+        if (emp.get("sEmail") or "").strip().lower() == (target_email or "").strip().lower():
+            target_login = (emp.get("sLoginName") or "").strip()
+            break
+
+    existing = get_controlled_employee_by_email(target_email) if target_email else None
+    record_id = existing.get("id") if existing else str(uuid4())
+    record = {
+        "id": record_id,
+        "fio": target_fio,
+        "email": target_email or "",
+        "login": target_login,
+        "created_at": existing.get("created_at") if existing else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "remind_count": existing.get("remind_count", 0) if existing else 0,
+        "last_reminded_at": existing.get("last_reminded_at", "") if existing else "",
+    }
+
+    # Мгновенно опрашиваем активы
+    updated = await refresh_controlled_employee(
+        record,
+        client,
+        _is_asset_inventoried,
+        inventory_number_from_atracker_dict,
+    )
+
+    tot = updated.get("total_assets", 0)
+    inv = updated.get("inventoried_assets", 0)
+    pct = updated.get("progress_pct", 0)
+    request.session["flash_message"] = (
+        f"Сотрудник «{target_fio}» добавлен на контроль. "
+        f"Техники в учёте: {tot} шт. (проведено: {inv}, {pct}%)."
+    )
+    _write_audit(request, action="inventory_control_add", details=f"fio={target_fio}; email={target_email}; total={tot}")
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
+@app.post("/admin/inventory-control/batch-add")
+async def admin_inventory_control_add_batch(
+    request: Request,
+    batch_text: str = Form(""),
+):
+    """Массовое добавление сотрудников из текстового списка."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        request.session["flash_message"] = "Доступ ограничен."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    lines = [x.strip() for x in re.split(r"[\r\n,;]+", batch_text or "") if x.strip()]
+    if not lines:
+        request.session["flash_message"] = "Список сотрудников пуст."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    client = _build_atracker_client()
+    try:
+        all_emp = await client.get_employees()
+    except Exception as ex:
+        request.session["flash_message"] = f"Не удалось получить сотрудников из A-Tracker: {ex}"
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    added_count = 0
+    skipped_list: list[str] = []
+
+    for token in lines:
+        target_fio, target_email, err = find_employee_by_input(all_emp or [], token, EMAIL_DOMAIN_ALLOWED)
+        if err or not target_fio:
+            skipped_list.append(token)
+            continue
+
+        target_login = ""
+        for emp in all_emp or []:
+            if (emp.get("sEmail") or "").strip().lower() == (target_email or "").strip().lower():
+                target_login = (emp.get("sLoginName") or "").strip()
+                break
+
+        existing = get_controlled_employee_by_email(target_email) if target_email else None
+        record_id = existing.get("id") if existing else str(uuid4())
+        record = {
+            "id": record_id,
+            "fio": target_fio,
+            "email": target_email or "",
+            "login": target_login,
+            "created_at": existing.get("created_at") if existing else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "remind_count": existing.get("remind_count", 0) if existing else 0,
+            "last_reminded_at": existing.get("last_reminded_at", "") if existing else "",
+        }
+
+        await refresh_controlled_employee(
+            record,
+            client,
+            _is_asset_inventoried,
+            inventory_number_from_atracker_dict,
+        )
+        added_count += 1
+
+    msg = f"Успешно обработано и поставлено на контроль сотрудников: {added_count}."
+    if skipped_list:
+        msg += f" Не удалось найти в базе ({len(skipped_list)}): " + ", ".join(skipped_list[:5])
+        if len(skipped_list) > 5:
+            msg += f" и ещё {len(skipped_list) - 5}."
+    request.session["flash_message"] = msg
+    _write_audit(request, action="inventory_control_batch_add", details=f"added={added_count}; skipped={len(skipped_list)}")
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
+@app.post("/admin/inventory-control/refresh-all")
+async def admin_inventory_control_refresh_all(request: Request):
+    """Принудительное обновление всех записей в списке контроля."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        return RedirectResponse(url="/assets", status_code=302)
+
+    client = _build_atracker_client()
+    success, errors = await refresh_all_controlled_employees(
+        client,
+        _is_asset_inventoried,
+        inventory_number_from_atracker_dict,
+    )
+    if errors == 0:
+        request.session["flash_message"] = f"Данные всех сотрудников ({success}) успешно обновлены из A-Tracker."
+    else:
+        request.session["flash_message"] = f"Обновлено: {success}, с ошибками: {errors}."
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
+@app.post("/admin/inventory-control/{emp_id}/refresh")
+async def admin_inventory_control_refresh_one(request: Request, emp_id: str):
+    """Обновление статуса конкретного сотрудника."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        return RedirectResponse(url="/assets", status_code=302)
+
+    rec = get_controlled_employee(emp_id)
+    if not rec:
+        request.session["flash_message"] = "Запись сотрудника не найдена."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    client = _build_atracker_client()
+    updated = await refresh_controlled_employee(
+        rec,
+        client,
+        _is_asset_inventoried,
+        inventory_number_from_atracker_dict,
+    )
+    fio = updated.get("fio") or ""
+    pct = updated.get("progress_pct", 0)
+    request.session["flash_message"] = f"Статус по сотруднику «{fio}» обновлен: {pct}% завершено."
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
+@app.post("/admin/inventory-control/{emp_id}/delete")
+async def admin_inventory_control_delete(request: Request, emp_id: str):
+    """Удаление сотрудника из мониторинга."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        return RedirectResponse(url="/assets", status_code=302)
+
+    rec = get_controlled_employee(emp_id)
+    fio = rec.get("fio") if rec else emp_id
+    delete_controlled_employee(emp_id)
+    request.session["flash_message"] = f"Сотрудник «{fio}» удален из списка контроля."
+    _write_audit(request, action="inventory_control_delete", details=f"id={emp_id}; fio={fio}")
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
+@app.post("/admin/inventory-control/{emp_id}/remind")
+async def admin_inventory_control_remind(request: Request, emp_id: str):
+    """Отправка письма-напоминания о необходимости пройти инвентаризацию."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        return RedirectResponse(url="/assets", status_code=302)
+
+    rec = get_controlled_employee(emp_id)
+    if not rec:
+        request.session["flash_message"] = "Сотрудник не найден."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    to_email = rec.get("email")
+    if not to_email:
+        request.session["flash_message"] = "У сотрудника не указан email для отправки."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    fio = rec.get("fio") or "Сотрудник"
+    total = rec.get("total_assets", 0)
+    inv = rec.get("inventoried_assets", 0)
+    left = total - inv
+
+    portal_url = (getattr(config, "WEB_PUBLIC_BASE_URL", "") or "").rstrip("/")
+    if portal_url:
+        portal_link_text = f"Ссылка на портал инвентаризации: {portal_url}/assets"
+    else:
+        portal_link_text = "Пожалуйста, откройте корпоративный портал инвентаризации техники."
+
+    # Собираем список непроверенной техники
+    uncompleted_list = []
+    for a in rec.get("assets_snapshot") or []:
+        if not a.get("inventoried"):
+            uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
+    
+    assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
+
+    body = f"""Здравствуйте, {fio}!
+
+Напоминаем о необходимости пройти плановую инвентаризацию закрепленной за вами рабочей техники.
+
+Текущий статус: проведено {inv} из {total} ед. (осталось провести: {left} ед.).
+
+Техника, ожидающая инвентаризации:
+{assets_block}
+
+Для подтверждения перейдите по ссылке:
+{portal_link_text}
+
+Как пройти инвентаризацию:
+1. Авторизуйтесь на портале через одноразовый код на корпоративную почту.
+2. В разделе «Мои активы» нажмите «Инвентаризировать по фото» или сфотографируйте QR-код на наклейке техники.
+
+Если оборудование уже передано другому сотруднику или списано, вы можете оформить заявку на перемещение или заявить о несоответствии прямо в интерфейсе портала.
+
+---
+Служба технической поддержки и учёта ИТ-активов
+"""
+
+    ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
+    if ok:
+        rec["last_reminded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        rec["remind_count"] = int(rec.get("remind_count") or 0) + 1
+        save_controlled_employee(rec)
+        request.session["flash_message"] = f"Напоминание успешно отправлено на почту {to_email}."
+        _write_audit(request, action="inventory_control_remind", details=f"to={to_email}; fio={fio}")
+    else:
+        request.session["flash_message"] = f"Не удалось отправить письмо на {to_email}: {err}"
+
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
+@app.get("/admin/inventory-control/export-csv")
+async def admin_inventory_control_export_csv(request: Request):
+    """Выгрузка отчета в CSV (Excel-совместимый UTF-8 с BOM)."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        return RedirectResponse(url="/assets", status_code=302)
+
+    csv_bytes = generate_inventory_control_csv()
+    filename = f"inventory_control_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{filename}\"",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
 
 
 def create_app() -> FastAPI:

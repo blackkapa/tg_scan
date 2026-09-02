@@ -2,9 +2,25 @@ import aiohttp
 import datetime
 import base64
 import logging
+import os
+import ssl
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _build_ssl_context(verify_ssl: bool, ca_bundle: str = "") -> bool | ssl.SSLContext:
+    """SSL для aiohttp: на внутреннем IIS часто нужен verify_ssl=false (свой CA)."""
+    if not verify_ssl:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    bundle = (ca_bundle or "").strip()
+    if bundle and os.path.isfile(bundle):
+        return ssl.create_default_context(cafile=bundle)
+    return True
 
 
 def _inventory_number_from_flat_dict(raw: Dict[str, Any]) -> str:
@@ -229,6 +245,8 @@ class ATrackerClient:
         portfolio_update_service_id: Optional[int] = None,
         request_attach_service_id: Optional[int] = None,
         asset_find_by_serial_service_id: Optional[int] = None,
+        verify_ssl: bool = False,
+        ca_bundle: str = "",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.username = username
@@ -253,6 +271,18 @@ class ATrackerClient:
         self._token: Optional[str] = None
         self._token_exp: Optional[datetime.datetime] = None
         self._refresh_token: Optional[str] = None
+        self._ssl = _build_ssl_context(verify_ssl, ca_bundle)
+        self._timeout = aiohttp.ClientTimeout(total=120, connect=30)
+
+    @asynccontextmanager
+    async def _client_session(self):
+        connector = aiohttp.TCPConnector(ssl=self._ssl, enable_cleanup_closed=True)
+        session = aiohttp.ClientSession(connector=connector, timeout=self._timeout)
+        try:
+            yield session
+        finally:
+            await session.close()
+            await connector.close()
 
     async def _login(self, session: aiohttp.ClientSession) -> None:
         """Получить новый JWT‑токен по логину/паролю."""
@@ -278,7 +308,7 @@ class ATrackerClient:
             await self._login(session)
 
     async def get_assets_by_fio(self, fio: str) -> List[Dict[str, Any]]:
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
@@ -301,7 +331,7 @@ class ATrackerClient:
         tg_user_id: int,
         tg_username: Optional[str],
     ) -> Dict[str, Any]:
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
@@ -328,7 +358,7 @@ class ATrackerClient:
         content_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         encoded = base64.b64encode(content_bytes).decode("ascii")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -356,7 +386,7 @@ class ATrackerClient:
     async def get_asset_info(self, asset_id: int) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         if not self.asset_info_service_id:
             return (None, "service_error")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
@@ -419,7 +449,7 @@ class ATrackerClient:
     async def get_employees(self) -> List[Dict[str, Any]]:
         if not self.employees_list_service_id:
             return []
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
@@ -438,7 +468,7 @@ class ATrackerClient:
         """
         if not self.locations_list_service_id:
             return []
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
@@ -457,7 +487,7 @@ class ATrackerClient:
         """Справочник категорий (itamCategory), тот же контракт, что у get_locations."""
         if not self.categories_list_service_id:
             return []
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
@@ -482,7 +512,7 @@ class ATrackerClient:
     ) -> Dict[str, Any]:
         if not self.employee_update_service_id:
             raise RuntimeError("ATRACKER_EMPLOYEE_UPDATE_SERVICE_ID not set")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -512,7 +542,7 @@ class ATrackerClient:
     ) -> Dict[str, Any]:
         if not self.employee_add_service_id:
             raise RuntimeError("ATRACKER_EMPLOYEE_ADD_SERVICE_ID not set")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -536,7 +566,7 @@ class ATrackerClient:
         sid = int(self.asset_add_request_create_service_id or 0)
         if sid <= 0:
             raise RuntimeError("asset_add_request_create_service_id не задан в конфигурации клиента")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -554,7 +584,7 @@ class ATrackerClient:
         sid = int(self.asset_add_request_get_service_id or 0)
         if sid <= 0:
             raise RuntimeError("asset_add_request_get_service_id не задан в конфигурации клиента")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
@@ -570,7 +600,7 @@ class ATrackerClient:
         sid = int(self.portfolio_create_service_id or 0)
         if sid <= 0:
             raise RuntimeError("portfolio_create_service_id не задан в конфигурации клиента")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -588,7 +618,7 @@ class ATrackerClient:
         sid = int(self.portfolio_update_service_id or 0)
         if sid <= 0:
             raise RuntimeError("portfolio_update_service_id не задан в конфигурации клиента")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -606,7 +636,7 @@ class ATrackerClient:
         sid = int(self.request_attach_service_id or 0)
         if sid <= 0:
             raise RuntimeError("request_attach_service_id не задан в конфигурации клиента")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -628,7 +658,7 @@ class ATrackerClient:
         sid = int(self.transfer_posting_service_id or 0)
         if sid <= 0:
             raise RuntimeError("transfer_posting_service_id не задан в конфигурации клиента")
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {
                 "Authorization": f"Bearer {self._token}",
@@ -649,7 +679,7 @@ class ATrackerClient:
         serial = (serial_number or "").strip()
         if not serial:
             return []
-        async with aiohttp.ClientSession() as session:
+        async with self._client_session() as session:
             await self._ensure_token(session)
             headers = {"Authorization": f"Bearer {self._token}"}
             url = f"{self.base_url}/Api/Service"
