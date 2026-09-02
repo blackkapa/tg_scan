@@ -1,4 +1,7 @@
+import json
 import logging
+import os
+from pathlib import Path
 import re
 import secrets
 import smtplib
@@ -10,13 +13,75 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# _codes: Dict[code, {"fio": str, "email": str, "expires": float, "attempts": int}]
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+AUTH_CODES_FILE = DATA_DIR / ".auth_codes.json"
+AUTH_CODES_LOCK_FILE = DATA_DIR / ".auth_codes.lock"
+
+# Fallback lock and in-memory dict
 _codes: Dict[str, Dict[str, Any]] = {}
 _codes_lock = threading.Lock()
 
 CODE_TTL_SEC = 600
 CODE_LEN = 6
 MAX_CODE_ATTEMPTS = 5
+
+
+class _FileCodesLock:
+    """Кросс-процессная блокировка для атомарной работы с кодами авторизации."""
+    def __init__(self):
+        self.lock_file = None
+
+    def __enter__(self):
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            self.lock_file = open(AUTH_CODES_LOCK_FILE, "a+", encoding="utf-8")
+            try:
+                import fcntl
+                fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX)
+            except Exception:
+                pass
+        except Exception as ex:
+            logger.debug("File lock exception: %s", ex)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.lock_file:
+            try:
+                try:
+                    import fcntl
+                    fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+                self.lock_file.close()
+            except Exception:
+                pass
+
+
+def _load_codes() -> Dict[str, Dict[str, Any]]:
+    """Чтение кодов из файла или fallback на память."""
+    try:
+        if AUTH_CODES_FILE.is_file():
+            with AUTH_CODES_FILE.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+    except Exception as ex:
+        logger.debug("Error loading auth codes from file: %s", ex)
+    return dict(_codes)
+
+
+def _save_codes(codes_data: Dict[str, Dict[str, Any]]) -> None:
+    """Атомарное сохранение кодов в файл."""
+    global _codes
+    _codes = dict(codes_data)
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_file = DATA_DIR / f".auth_codes_{os.getpid()}_{time.time_ns()}.tmp"
+        with tmp_file.open("w", encoding="utf-8") as f:
+            json.dump(codes_data, f)
+        tmp_file.replace(AUTH_CODES_FILE)
+    except Exception as ex:
+        logger.warning("Error saving auth codes: %s", ex)
 
 
 def _norm(s: Optional[str]) -> str:
@@ -111,46 +176,54 @@ def create_code(fio: str, email: str) -> str:
     now = time.time()
     code = "".join(secrets.choice(string.digits) for _ in range(CODE_LEN))
     with _codes_lock:
-        # Очистка устаревших кодов
-        expired_keys = [k for k, v in _codes.items() if now > v.get("expires", 0)]
-        for k in expired_keys:
-            del _codes[k]
-
-        _codes[code] = {
-            "fio": fio,
-            "email": email,
-            "expires": now + CODE_TTL_SEC,
-            "attempts": 0,
-        }
+        with _FileCodesLock():
+            codes = _load_codes()
+            # Очистка устаревших кодов
+            codes = {k: v for k, v in codes.items() if now <= v.get("expires", 0)}
+            codes[code] = {
+                "fio": fio,
+                "email": email,
+                "expires": now + CODE_TTL_SEC,
+                "attempts": 0,
+            }
+            _save_codes(codes)
     return code
 
 
 def check_code(code: str, expected_email: Optional[str] = None) -> Optional[Tuple[str, str]]:
     """Проверяет код, учитывая лимит попыток и соответствие email в сессии."""
     code = (code or "").strip()
+    if not code:
+        return None
     now = time.time()
     with _codes_lock:
-        if not code or code not in _codes:
-            return None
-        item = _codes[code]
-        if now > item.get("expires", 0):
-            del _codes[code]
-            return None
+        with _FileCodesLock():
+            codes = _load_codes()
+            if not codes or code not in codes:
+                return None
+            item = codes[code]
+            if now > item.get("expires", 0):
+                del codes[code]
+                _save_codes(codes)
+                return None
 
-        item["attempts"] = item.get("attempts", 0) + 1
-        if item["attempts"] > MAX_CODE_ATTEMPTS:
-            del _codes[code]
-            return None
+            item["attempts"] = item.get("attempts", 0) + 1
+            if item["attempts"] > MAX_CODE_ATTEMPTS:
+                del codes[code]
+                _save_codes(codes)
+                return None
 
-        fio = item.get("fio") or ""
-        email = item.get("email") or ""
+            fio = item.get("fio") or ""
+            email = item.get("email") or ""
 
-        if expected_email and email.strip().lower() != expected_email.strip().lower():
-            # Если код не принадлежит этому email, не выдаем сессию
-            return None
+            if expected_email and email.strip().lower() != expected_email.strip().lower():
+                _save_codes(codes)
+                return None
 
-        del _codes[code]
-        return (fio, email)
+            # Сжигаем использованный код
+            del codes[code]
+            _save_codes(codes)
+            return (fio, email)
 
 
 def send_code_email(to_email: str, code: str) -> Tuple[bool, str]:

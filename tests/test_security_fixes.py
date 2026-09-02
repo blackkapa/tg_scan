@@ -32,8 +32,11 @@ class TestSecurityHardening(unittest.TestCase):
         self.assertTrue(len(secret) >= 32)
 
     def test_settings_secret_timing_safe(self):
-        """Проверка корректной валидации секрета настроек."""
-        self.assertTrue(_check_settings_secret("whorebear"))
+        """Проверка корректной валидации секрета настроек без уязвимого хардкода."""
+        secret_file = BASE_DIR / "data" / ".settings_secret"
+        if secret_file.is_file():
+            real_secret = secret_file.read_text(encoding="utf-8").strip()
+            self.assertTrue(_check_settings_secret(real_secret))
         self.assertFalse(_check_settings_secret("wrongpassword"))
         self.assertFalse(_check_settings_secret(""))
 
@@ -120,6 +123,31 @@ class TestSecurityHardening(unittest.TestCase):
             headers={"Host": "testserver", "Origin": "https://evil-attacker.com"},
         )
         self.assertEqual(csrf_resp.status_code, 403)
+
+        # POST с Sec-Fetch-Site: cross-site
+        cross_site_resp = client.post(
+            "/start-auth",
+            data={"identifier": "admin"},
+            headers={"Host": "testserver", "Sec-Fetch-Site": "cross-site"},
+        )
+        self.assertEqual(cross_site_resp.status_code, 403)
+
+    def test_multi_worker_auth_codes_persistence(self):
+        """Проверка, что коды сохраняются в файловое хранилище data/.auth_codes.json."""
+        from front_site.auth_web import AUTH_CODES_FILE, _load_codes
+        fio = "Сидоров Сидор"
+        email = "sidorov@asg.ru"
+        code = create_code(fio, email)
+
+        self.assertTrue(AUTH_CODES_FILE.is_file())
+        saved_codes = _load_codes()
+        self.assertIn(code, saved_codes)
+        self.assertEqual(saved_codes[code]["email"], email)
+
+        # Проверка и сжигание кода
+        res = check_code(code, expected_email=email)
+        self.assertEqual(res, (fio, email))
+        self.assertNotIn(code, _load_codes())
 
 
 if __name__ == "__main__":

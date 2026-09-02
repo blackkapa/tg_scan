@@ -1,10 +1,12 @@
 .DS_Store
 
-# Секреты (токен, пароли)
+# Секреты (токен, пароли, сгенерированные ключи)
 config.ini
 *.session_secret
 .session_secret
-data/.session_secret
+data/.*
+data/*.json
+data/*.lock
 
 # Данные (выгрузка AD, обработанные реестры)
 ad_export.json

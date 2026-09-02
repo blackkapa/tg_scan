@@ -198,14 +198,22 @@ def _is_safe_request_origin(source: str, request: Request) -> bool:
 
 @app.middleware("http")
 async def csrf_protect_middleware(request: Request, call_next):
-    """Защита от межсайтовой подделки запросов (CSRF) на основе проверки Origin/Referer."""
+    """Защита от межсайтовой подделки запросов (CSRF) на основе проверки Origin/Referer и Sec-Fetch-Site."""
     if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        # 1. Защита на основе Sec-Fetch-Site (современные браузеры)
+        sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+        if sec_fetch_site == "cross-site":
+            logger.warning("Blocked cross-site request via Sec-Fetch-Site: host=%s", request.headers.get("host"))
+            return Response(content="Forbidden: CSRF check failed.", status_code=403)
+
+        # 2. Проверка Origin / Referer
         origin = request.headers.get("origin")
         referer = request.headers.get("referer")
         source = origin or referer
-        if source and not _is_safe_request_origin(source, request):
-            logger.warning("Blocked untrusted cross-origin request: source=%s, host=%s", source, request.headers.get("host"))
-            return Response(content="Forbidden: CSRF check failed.", status_code=403)
+        if source:
+            if not _is_safe_request_origin(source, request):
+                logger.warning("Blocked untrusted cross-origin request: source=%s, host=%s", source, request.headers.get("host"))
+                return Response(content="Forbidden: CSRF check failed.", status_code=403)
     return await call_next(request)
 
 static_dir = BASE_DIR / "static"
@@ -2485,6 +2493,7 @@ def _save_settings_config(
     web_transfer_enabled: bool = True,
     web_discrepancy_button_enabled: bool = True,
     settings_secret: str = "",
+    atracker_verify_ssl: bool = False,
 ) -> None:
     cfg = _load_settings_config()
 
@@ -2492,6 +2501,7 @@ def _save_settings_config(
     cfg.set("atracker", "base_url", (atracker_base_url or "").strip())
     cfg.set("atracker", "username", (atracker_username or "").strip())
     cfg.set("atracker", "password", (atracker_password or "").strip())
+    cfg.set("atracker", "verify_ssl", "true" if atracker_verify_ssl else "false")
 
     _ensure_section(cfg, "email")
     if email_domain_allowed:
@@ -2749,6 +2759,10 @@ async def settings_page(request: Request) -> HTMLResponse:
     atracker_base_url = cfg.get("atracker", "base_url", fallback="")
     atracker_username = cfg.get("atracker", "username", fallback="")
     atracker_password = cfg.get("atracker", "password", fallback="")
+    atracker_verify_ssl = False
+    if cfg.has_section("atracker"):
+        _vssl = (cfg.get("atracker", "verify_ssl", fallback="false") or "false").strip().lower()
+        atracker_verify_ssl = _vssl in ("1", "true", "yes", "on")
 
     email_domain_allowed = cfg.get("email", "domain_allowed", fallback="")
     email_admin_emails = cfg.get("email", "admin_emails", fallback="")
@@ -2866,6 +2880,7 @@ async def settings_page(request: Request) -> HTMLResponse:
             "atracker_username": atracker_username,
             "atracker_password": "",
             "has_atracker_password": bool(atracker_password),
+            "atracker_verify_ssl": atracker_verify_ssl,
             "email_domain_allowed": email_domain_allowed,
             "email_admin_emails": email_admin_emails,
             "email_bypass_code_emails": email_bypass_code_emails,
@@ -2906,6 +2921,7 @@ async def settings_save(
     atracker_base_url: str = Form(""),
     atracker_username: str = Form(""),
     atracker_password: str = Form(""),
+    atracker_verify_ssl: str = Form("false"),
     email_domain_allowed: str = Form(""),
     email_admin_emails: str = Form(""),
     smtp_host: str = Form(""),
@@ -2939,10 +2955,12 @@ async def settings_save(
         final_smtp_password = cfg_current.get("smtp", "password", fallback="")
 
     try:
+        clean_atr_ssl = str(atracker_verify_ssl).strip().lower() in ("1", "true", "on", "yes")
         _save_settings_config(
             atracker_base_url=atracker_base_url,
             atracker_username=atracker_username,
             atracker_password=final_atracker_password,
+            atracker_verify_ssl=clean_atr_ssl,
             email_domain_allowed=email_domain_allowed,
             email_admin_emails=email_admin_emails,
             smtp_host=smtp_host,

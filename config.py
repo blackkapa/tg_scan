@@ -184,21 +184,38 @@ def get_settings_secret_hash() -> str:
     ini_plain = _get("web", "settings_secret", "").strip()
     if ini_plain:
         return hashlib.sha256(ini_plain.encode("utf-8")).hexdigest()
-    # 3. Дефолтный хэш (обратная совместимость с текущим паролем whorebear)
-    return hashlib.sha256("whorebear".encode("utf-8")).hexdigest()
+    # 3. Persistent файл data/.settings_secret
+    try:
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        secret_file = os.path.join(data_dir, ".settings_secret")
+        if os.path.isfile(secret_file):
+            with open(secret_file, "r", encoding="utf-8") as f:
+                val = f.read().strip()
+                if val:
+                    return hashlib.sha256(val.encode("utf-8")).hexdigest()
+        import secrets
+        generated = secrets.token_urlsafe(24)
+        os.makedirs(data_dir, exist_ok=True)
+        with open(secret_file, "w", encoding="utf-8") as f:
+            f.write(generated)
+        return hashlib.sha256(generated.encode("utf-8")).hexdigest()
+    except Exception:
+        return hashlib.sha256(SESSION_SECRET_KEY.encode("utf-8")).hexdigest()
 
 
 def reload_web_flags_from_disk() -> None:
-    """Перечитать config.ini и обновить runtime-настройки [web]/[email] в памяти."""
+    """Перечитать config.ini и обновить runtime-настройки [web]/[email]/[atracker] в памяти."""
     global _cfg
     global WEB_PUBLIC_BASE_URL, WEB_ASSET_ADD_BUTTON_ENABLED, WEB_TRANSFER_ENABLED
     global WEB_DISCREPANCY_ENABLED, WEB_DISCREPANCY_BUTTON_ENABLED
     global ADMIN_EMAILS, BYPASS_CODE_EMAILS, EMAIL_DOMAIN_ALLOWED
     global TRANSFER_NOTIFICATION_TO, TRANSFER_ADMIN_CONFIRM_EMAIL
-    global SESSION_SECRET_KEY
+    global SESSION_SECRET_KEY, ATRACKER_VERIFY_SSL
     _cfg = ConfigParser()
     if os.path.isfile(_CONFIG_PATH):
         _cfg.read(_CONFIG_PATH, encoding="utf-8")
+    # atracker
+    ATRACKER_VERIFY_SSL = _getbool("atracker", "verify_ssl", False)
     # email / auth
     EMAIL_DOMAIN_ALLOWED = _get("email", "domain_allowed", "asg.ru")
     ADMIN_EMAILS = _parse_admin_emails()

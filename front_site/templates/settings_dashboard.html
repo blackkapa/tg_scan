@@ -65,6 +65,13 @@
                                    placeholder="{% if config.has_atracker_password %}•••••••• (сохранён){% else %}Введите пароль{% endif %}"
                                    value="" autocomplete="new-password">
                         </label>
+                        <label class="settings-field">
+                            <span>Проверка SSL-сертификата A-Tracker</span>
+                            <select name="atracker_verify_ssl" class="auth-form__input">
+                                <option value="false" {% if not config.atracker_verify_ssl %}selected{% endif %}>Отключена (самоподписанный сертификат / IIS интранет)</option>
+                                <option value="true" {% if config.atracker_verify_ssl %}selected{% endif %}>Включена (строгая проверка SSL / TLS)</option>
+                            </select>
+                        </label>
                     </div>
                 </div>
 
