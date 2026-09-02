@@ -6029,61 +6029,63 @@ async def admin_inventory_control_remind(request: Request, emp_id: str):
         request.session["flash_message"] = "Сотрудник не найден."
         return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
-    to_email = rec.get("email")
+    to_email = (rec.get("email") or "").strip()
     if not to_email:
         request.session["flash_message"] = "У сотрудника не указан email для отправки."
         return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
     fio = rec.get("fio") or "Сотрудник"
-    total = rec.get("total_assets", 0)
-    inv = rec.get("inventoried_assets", 0)
+    total = int(rec.get("total_assets") or 0)
+    inv = int(rec.get("inventoried_assets") or 0)
     left = total - inv
 
-    portal_url = (getattr(config, "WEB_PUBLIC_BASE_URL", "") or "").rstrip("/")
-    if portal_url:
-        portal_link_text = f"Ссылка на портал инвентаризации: {portal_url}/assets"
-    else:
-        portal_link_text = "Пожалуйста, откройте корпоративный портал инвентаризации техники."
+    portal_url = (WEB_PUBLIC_BASE_URL or "https://myinvent.ovp.ru").rstrip("/")
 
     # Собираем список непроверенной техники
     uncompleted_list = []
     for a in rec.get("assets_snapshot") or []:
         if not a.get("inventoried"):
             uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
-    
+
     assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
 
     body = f"""Здравствуйте, {fio}!
 
-Напоминаем о необходимости пройти плановую инвентаризацию закрепленной за вами рабочей техники.
+Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.
 
-Текущий статус: проведено {inv} из {total} ед. (осталось провести: {left} ед.).
-
-Техника, ожидающая инвентаризации:
+Техника, ожидающая инвентаризации ({left} из {total} ед.):
 {assets_block}
 
-Для подтверждения перейдите по ссылке:
-{portal_link_text}
+Для проведения инвентаризации перейдите по ссылке:
+{portal_url}
 
-Как пройти инвентаризацию:
-1. Авторизуйтесь на портале через одноразовый код на корпоративную почту.
-2. В разделе «Мои активы» нажмите «Инвентаризировать по фото» или сфотографируйте QR-код на наклейке техники.
+Что необходимо сделать (краткая инструкция):
+1. Перейдите по ссылке: {portal_url}
+2. Введите вашу корпоративную почту или логин и укажите полученный одноразовый код.
+3. В разделе «Мои активы» найдите вашу технику из списка выше.
+4. Нажмите кнопку «Инвентаризировать по фото» (или сфотографируйте наклейку с QR-кодом / шильдик устройства).
+5. Прикрепите чёткое фото оборудования и нажмите «Отправить».
+6. Убедитесь, что статус позиции сменился на зелёную отметку «Проведён».
 
-Если оборудование уже передано другому сотруднику или списано, вы можете оформить заявку на перемещение или заявить о несоответствии прямо в интерфейсе портала.
+Если оборудование уже передано другому сотруднику или списано, вы можете прямо на портале оформить заявку на перемещение или заявить о несоответствии.
 
 ---
 Служба технической поддержки и учёта ИТ-активов
 """
 
-    ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
-    if ok:
-        rec["last_reminded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        rec["remind_count"] = int(rec.get("remind_count") or 0) + 1
-        save_controlled_employee(rec)
-        request.session["flash_message"] = f"Напоминание успешно отправлено на почту {to_email}."
-        _write_audit(request, action="inventory_control_remind", details=f"to={to_email}; fio={fio}")
-    else:
-        request.session["flash_message"] = f"Не удалось отправить письмо на {to_email}: {err}"
+    try:
+        ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
+        if ok:
+            rec["last_reminded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            rec["remind_count"] = int(rec.get("remind_count") or 0) + 1
+            save_controlled_employee(rec)
+            request.session["flash_message"] = f"Напоминание успешно отправлено на почту {to_email}."
+            _write_audit(request, action="inventory_control_remind", details=f"to={to_email}; fio={fio}")
+        else:
+            request.session["flash_message"] = f"Не удалось отправить письмо на {to_email}: {err}"
+    except Exception as ex:
+        logger.exception("Error sending reminder email to %s: %s", to_email, ex)
+        request.session["flash_message"] = f"Ошибка отправки письма: {ex}"
 
     return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
