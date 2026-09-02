@@ -2719,53 +2719,49 @@ async def settings_page(request: Request) -> HTMLResponse:
 
     # Фильтры для читаемости аудита (по query-параметрам)
     try:
-        limit = int(request.query_params.get("limit", "60"))
+        limit = int(request.query_params.get("limit", "100"))
     except ValueError:
-        limit = 60
-    limit = max(10, min(limit, 200))
+        limit = 100
+    limit = max(10, min(limit, 500))
     filter_email = (request.query_params.get("filter_email", "") or "").strip().lower()
     filter_action = (request.query_params.get("filter_action", "") or "").strip().lower()
 
-    # Сразу пишем текущий визит, чтобы в таблице/группах он отображался уже на этом же открытии.
+    # Сразу пишем текущий визит
     _write_audit(request, action="settings_open")
 
-    # Читаем audit.log (может отсутствовать)
+    # Читаем audit.log
     audit_rows = []
     if AUDIT_LOG_PATH.is_file():
         try:
             with AUDIT_LOG_PATH.open("r", encoding="utf-8") as f:
-                # Берём запас, чтобы фильтры не "пустили" таблицу.
-                window = max(200, limit * 5)
+                window = max(300, limit * 4)
                 lines = f.readlines()[-window:]
             for line in reversed(lines):
                 parts = line.rstrip("\n").split("\t")
                 if len(parts) < 5:
                     continue
                 ts, email, ip, action, details = parts[:5]
-                row = {
-                    "ts": ts,
-                    "email": email,
-                    "ip": ip,
-                    "action": action,
-                    "details": details,
-                }
+                action_clean = action.strip()
                 if filter_email and filter_email not in (email or "").lower():
                     continue
-                if filter_action and filter_action not in (action or "").lower():
+                if filter_action and filter_action not in action_clean.lower():
                     continue
+                title, category, level = AUDIT_ACTION_MAP.get(action_clean, (action_clean, "system", "default"))
                 audit_rows.append(
                     {
-                        "ts": row["ts"],
-                        "email": row["email"],
-                        "ip": row["ip"],
-                        "action": row["action"],
-                        "details": row["details"],
+                        "ts": ts,
+                        "email": email,
+                        "ip": ip,
+                        "action": action_clean,
+                        "title": title,
+                        "category": category,
+                        "level": level,
+                        "details": details,
                     }
                 )
         except Exception:
             audit_rows = []
 
-    # Ограничиваем количество строк сверху (audit_rows уже в порядке \"самое свежее первым\")
     audit_rows = audit_rows[:limit]
 
     context = {

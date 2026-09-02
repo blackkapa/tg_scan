@@ -568,10 +568,88 @@ html, body {
     border-top: 1px solid #e2e8f0;
 }
 
+.settings-audit-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.audit-chips-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+}
+
+.audit-chip {
+    padding: 0.35rem 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: #475569;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.audit-chip:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.audit-chip--active {
+    background: #122c5a;
+    color: #ffffff;
+    border-color: #122c5a;
+    font-weight: 600;
+}
+
+.audit-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.9rem;
+}
+
+.audit-search-input-wrap {
+    flex: 1;
+    min-width: 240px;
+    position: relative;
+}
+
+.audit-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.55rem 0.85rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    background: #ffffff;
+    transition: border-color 0.15s ease;
+}
+
+.audit-search-input:focus {
+    outline: none;
+    border-color: #1b5bb5;
+    box-shadow: 0 0 0 3px rgba(27, 91, 181, 0.1);
+}
+
+.audit-stats-text {
+    font-size: 0.82rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
 .settings-audit-table-wrapper {
-    max-height: 520px;
+    max-height: 560px;
     overflow: auto;
-    border-radius: 10px;
+    border-radius: 8px;
     border: 1px solid #e2e8f0;
     background-color: #ffffff;
     box-shadow: 0 1px 3px rgba(0,0,0,0.02);
@@ -585,14 +663,18 @@ html, body {
 
 .settings-audit-table th,
 .settings-audit-table td {
-    padding: 0.55rem 0.75rem;
+    padding: 0.65rem 0.85rem;
     border-bottom: 1px solid #f1f5f9;
+    vertical-align: top;
 }
 
 .settings-audit-table th {
     background-color: #f8fafc;
     color: #475569;
     font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
     text-align: left;
     position: sticky;
     top: 0;
@@ -604,69 +686,89 @@ html, body {
     background-color: #f8fafc;
 }
 
-.settings-audit-filters {
-    margin-bottom: 1.25rem;
+.audit-event-title {
+    font-weight: 600;
+    color: #0f172a;
+    font-size: 0.84rem;
+    margin-bottom: 0.15rem;
+}
+
+.audit-event-key {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.74rem;
+    color: #64748b;
+}
+
+.audit-user-email {
+    font-weight: 600;
+    color: #1e293b;
+    font-size: 0.84rem;
+    word-break: break-all;
+}
+
+.audit-user-ip {
+    font-family: ui-monospace, monospace;
+    font-size: 0.74rem;
+    color: #64748b;
+    margin-top: 0.15rem;
+}
+
+.audit-time {
+    color: #475569;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.audit-details-text {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #334155;
     background: #f8fafc;
+    padding: 0.35rem 0.55rem;
+    border-radius: 6px;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 1rem 1.25rem;
-}
-
-.settings-audit-filters__row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    align-items: flex-end;
-}
-
-.settings-audit-filters__row label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    min-width: 180px;
-    flex: 1;
-}
-
-.settings-audit-filters__actions {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-top: 0.85rem;
 }
 
 .audit-badge {
     display: inline-block;
-    padding: 0.2rem 0.55rem;
-    border-radius: 6px;
-    font-size: 0.76rem;
+    padding: 0.22rem 0.55rem;
+    border-radius: 4px;
+    font-size: 0.74rem;
     font-weight: 600;
-    font-family: ui-monospace, monospace;
     white-space: nowrap;
-}
-
-.audit-badge--success {
-    background: #dcfce7;
-    color: #166534;
 }
 
 .audit-badge--danger {
     background: #fee2e2;
     color: #991b1b;
+    border: 1px solid #fecaca;
 }
 
 .audit-badge--warning {
     background: #fef3c7;
     color: #92400e;
+    border: 1px solid #fde68a;
+}
+
+.audit-badge--success {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
 }
 
 .audit-badge--info {
     background: #e0f2fe;
     color: #0369a1;
+    border: 1px solid #bae6fd;
 }
 
 .audit-badge--default {
     background: #f1f5f9;
-    color: #334155;
+    color: #475569;
+    border: 1px solid #e2e8f0;
 }
 
 .audit-details {

@@ -8,7 +8,7 @@
         <div class="settings-header">
             <div>
                 <h1 class="hero__title" style="margin-bottom: 0.25rem;">Настройки системы</h1>
-                <p class="settings-section-card__desc">Управление интеграциями, модулями сайта, доступом и аудит событий</p>
+                <p class="settings-section-card__desc">Конфигурация интеграций, модулей сайта, прав доступа и журнал безопасности</p>
             </div>
         </div>
 
@@ -21,16 +21,16 @@
         <!-- Навигация по вкладкам -->
         <div class="settings-tabs" role="tablist">
             <button type="button" class="settings-tab-btn settings-tab-btn--active" data-tab="integrations" role="tab">
-                <span>⚙️</span> Интеграции и Сервисы
+                Интеграции и Сервисы
             </button>
             <button type="button" class="settings-tab-btn" data-tab="modules" role="tab">
-                <span>🧩</span> Модули сайта
+                Модули сайта
             </button>
             <button type="button" class="settings-tab-btn" data-tab="access" role="tab">
-                <span>👥</span> Доступы и Рассылки
+                Доступ и Рассылки
             </button>
             <button type="button" class="settings-tab-btn" data-tab="audit" role="tab">
-                <span>📋</span> Журнал активности
+                Журнал активности
             </button>
         </div>
 
@@ -42,7 +42,7 @@
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">
                         <div>
-                            <h2 class="settings-section-card__title">🏢 Интеграция с A-Tracker</h2>
+                            <h2 class="settings-section-card__title">Интеграция с A-Tracker</h2>
                             <p class="settings-section-card__desc">Параметры подключения к корпоративной системе A-Tracker API</p>
                         </div>
                     </div>
@@ -72,8 +72,8 @@
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">
                         <div>
-                            <h2 class="settings-section-card__title">✉️ Почтовый сервер SMTP</h2>
-                            <p class="settings-section-card__desc">Параметры почтового шлюза для отправки кодов входа и актов</p>
+                            <h2 class="settings-section-card__title">Почтовый сервер SMTP</h2>
+                            <p class="settings-section-card__desc">Параметры почтового шлюза для отправки кодов авторизации и актов</p>
                         </div>
                     </div>
                     <div class="settings-grid-2col">
@@ -121,8 +121,8 @@
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">
                         <div>
-                            <h2 class="settings-section-card__title">🛡️ Доступ к разделу настроек</h2>
-                            <p class="settings-section-card__desc">Секретный пароль для разблокировки страницы <code>/settings</code></p>
+                            <h2 class="settings-section-card__title">Доступ к разделу настроек</h2>
+                            <p class="settings-section-card__desc">Секретный пароль для разблокировки страницы управления (/settings)</p>
                         </div>
                     </div>
                     <div class="settings-grid-2col">
@@ -138,7 +138,7 @@
                 <!-- Footer Action -->
                 <div class="settings-save-footer">
                     <span class="auth-form__hint">Изменения применятся сразу после сохранения</span>
-                    <button type="submit" class="auth-form__button" style="min-width: 200px;">💾 Сохранить настройки</button>
+                    <button type="submit" class="auth-form__button" style="min-width: 200px;">Сохранить настройки</button>
                 </div>
             </div>
 
@@ -147,7 +147,7 @@
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">
                         <div>
-                            <h2 class="settings-section-card__title">🧩 Функциональные модули</h2>
+                            <h2 class="settings-section-card__title">Функциональные модули</h2>
                             <p class="settings-section-card__desc">Включение и скрытие отдельных бизнес-контуров для пользователей</p>
                         </div>
                     </div>
@@ -155,9 +155,9 @@
                     <!-- Module 1: Transfer -->
                     <div class="settings-module-card">
                         <div class="settings-module-card__info">
-                            <div class="settings-module-card__title">📦 Заявки на перемещение техники</div>
+                            <div class="settings-module-card__title">Заявки на перемещение техники</div>
                             <div class="settings-module-card__desc">
-                                Включает выбор оборудования в «Мои активы», форму оформления передачи <code>/transfer/start</code>, генерацию PDF-актов приёма-передачи и админ-реестр перемещений.
+                                Включает выбор оборудования в «Мои активы», форму оформления передачи /transfer/start, генерацию PDF-актов приёма-передачи и админ-реестр перемещений.
                             </div>
                         </div>
                         <label class="switch" title="Включить / отключить модуль перемещения">
@@ -170,9 +170,9 @@
                     <!-- Module 2: Asset Add -->
                     <div class="settings-module-card">
                         <div class="settings-module-card__info">
-                            <div class="settings-module-card__title">➕ Добавление неучтенной техники</div>
+                            <div class="settings-module-card__title">Добавление неучтенной техники</div>
                             <div class="settings-module-card__desc">
-                                Включает кнопку «Добавить технику» в личном кабинете, форму подачи заявки <code>/asset-add/start</code> с фото шильдиков и раздел согласования новых позиций.
+                                Включает кнопку «Добавить технику» в личном кабинете, форму подачи заявки /asset-add/start с фото шильдиков и раздел согласования новых позиций.
                             </div>
                         </div>
                         <label class="switch" title="Включить / отключить модуль добавления техники">
@@ -185,7 +185,7 @@
                     <!-- Module 3: Discrepancy -->
                     <div class="settings-module-card">
                         <div class="settings-module-card__info">
-                            <div class="settings-module-card__title">⚠️ Сообщения о несоответствиях</div>
+                            <div class="settings-module-card__title">Сообщения о несоответствиях</div>
                             <div class="settings-module-card__desc">
                                 Отображает кнопку «Сообщить о несоответствии» в карточке оборудования для быстрой фиксации расхождений между фактическим состоянием и базой.
                             </div>
@@ -201,7 +201,7 @@
                 <!-- Footer Action -->
                 <div class="settings-save-footer">
                     <span class="auth-form__hint">Изменения флагов модулей применяются мгновенно</span>
-                    <button type="submit" class="auth-form__button" style="min-width: 200px;">💾 Сохранить настройки</button>
+                    <button type="submit" class="auth-form__button" style="min-width: 200px;">Сохранить настройки</button>
                 </div>
             </div>
 
@@ -211,7 +211,7 @@
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">
                         <div>
-                            <h2 class="settings-section-card__title">👥 Корпоративный доступ</h2>
+                            <h2 class="settings-section-card__title">Корпоративный доступ</h2>
                             <p class="settings-section-card__desc">Ограничение доменов почты и назначение прав администраторов</p>
                         </div>
                     </div>
@@ -239,7 +239,7 @@
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">
                         <div>
-                            <h2 class="settings-section-card__title">📬 Служебные адреса и уведомления</h2>
+                            <h2 class="settings-section-card__title">Служебные адреса и уведомления</h2>
                             <p class="settings-section-card__desc">Маршрутизация писем с актами и сервисными событиями</p>
                         </div>
                     </div>
@@ -268,7 +268,7 @@
                 <!-- Footer Action -->
                 <div class="settings-save-footer">
                     <span class="auth-form__hint">Рассылки используют указанные адреса</span>
-                    <button type="submit" class="auth-form__button" style="min-width: 200px;">💾 Сохранить настройки</button>
+                    <button type="submit" class="auth-form__button" style="min-width: 200px;">Сохранить настройки</button>
                 </div>
             </div>
         </form>
@@ -276,15 +276,39 @@
         <!-- ВКЛАДКА 4: Журнал аудита -->
         <div class="settings-panel" id="tab-audit" role="tabpanel">
             <div class="settings-section-card">
-                <div class="settings-section-card__header">
+                <div class="settings-audit-header">
                     <div>
-                        <h2 class="settings-section-card__title">📋 Журнал активности и безопасности</h2>
-                        <p class="settings-section-card__desc">История входов, инвентаризаций, изменений настроек и событий защиты</p>
+                        <h2 class="settings-section-card__title">Журнал активности и безопасности</h2>
+                        <p class="settings-section-card__desc">Аудит входов, действий с активами, изменений настроек и блокировок безопасности</p>
+                    </div>
+                    <button type="button" class="assets-list__link" id="toggleServerFilterBtn" style="font-size: 0.85rem; cursor: pointer; background: none; border: none; padding: 0;">
+                        Параметры выборки с сервера
+                    </button>
+                </div>
+
+                <!-- Быстрые фильтры по категориям (Chips) -->
+                <div class="audit-chips-bar" id="auditCategoryChips">
+                    <button type="button" class="audit-chip audit-chip--active" data-category="all">Все события</button>
+                    <button type="button" class="audit-chip" data-category="security">Безопасность и блокировки</button>
+                    <button type="button" class="audit-chip" data-category="auth">Авторизация</button>
+                    <button type="button" class="audit-chip" data-category="inventory">Инвентаризация</button>
+                    <button type="button" class="audit-chip" data-category="requests">Заявки и перемещения</button>
+                    <button type="button" class="audit-chip" data-category="system">Система и настройки</button>
+                </div>
+
+                <!-- Панель быстрого поиска и счетчик -->
+                <div class="audit-toolbar">
+                    <div class="audit-search-input-wrap">
+                        <input type="text" id="auditLiveSearch" class="audit-search-input"
+                               placeholder="Быстрый поиск по пользователю, IP, событию или деталям...">
+                    </div>
+                    <div class="audit-stats-text" id="auditStats">
+                        Записей: {{ audit_rows|length }}
                     </div>
                 </div>
 
-                <!-- Форма фильтров -->
-                <form method="get" action="/settings" class="settings-audit-filters" id="auditFilterForm">
+                <!-- Форма расширенного серверного фильтра (скрыта по умолчанию) -->
+                <form method="get" action="/settings" class="settings-audit-filters" id="auditServerFilterForm" style="display: none;">
                     <div class="settings-audit-filters__row">
                         <label>
                             <span>Поиск по Email</span>
@@ -293,63 +317,69 @@
                                    value="{{ request.query_params.get('filter_email','') }}">
                         </label>
                         <label>
-                            <span>Тип действия</span>
+                            <span>Технический код действия</span>
                             <input type="text" name="filter_action" class="auth-form__input"
-                                   placeholder="Напр.: login_success, settings_save"
+                                   placeholder="Напр.: inventory_forbidden, login_success"
                                    value="{{ request.query_params.get('filter_action','') }}">
                         </label>
                         <label style="flex: 0 0 140px;">
-                            <span>Количество строк</span>
+                            <span>Лимит выборки</span>
                             <select name="limit" class="auth-form__input">
-                                {% for n in [20, 50, 100, 200] %}
+                                {% for n in [50, 100, 200, 500] %}
                                     <option value="{{ n }}"
-                                            {% if request.query_params.get('limit','50') == (n|string) %}selected{% endif %}>
-                                        {{ n }} записей
+                                            {% if request.query_params.get('limit','100') == (n|string) %}selected{% endif %}>
+                                        {{ n }} строк
                                     </option>
                                 {% endfor %}
                             </select>
                         </label>
                     </div>
                     <div class="settings-audit-filters__actions">
-                        <button type="submit" class="auth-form__button" style="padding: 0.5rem 1.1rem; font-size: 0.88rem;">🔍 Применить фильтр</button>
-                        <a href="/settings#audit" class="assets-list__link" style="font-size: 0.88rem;">Сбросить фильтры</a>
+                        <button type="submit" class="auth-form__button" style="padding: 0.45rem 1rem; font-size: 0.85rem;">Загрузить с сервера</button>
+                        <a href="/settings#audit" class="assets-list__link" style="font-size: 0.85rem;">Сбросить параметры</a>
                     </div>
                 </form>
 
                 <!-- Таблица аудита -->
                 {% if audit_rows %}
                     <div class="settings-audit-table-wrapper">
-                        <table class="settings-audit-table">
+                        <table class="settings-audit-table" id="auditLogTable">
                             <thead>
                             <tr>
-                                <th style="width: 155px;">Время</th>
-                                <th>Email</th>
-                                <th style="width: 120px;">IP</th>
-                                <th style="width: 170px;">Событие</th>
+                                <th style="width: 140px;">Время</th>
+                                <th style="width: 220px;">Событие</th>
+                                <th style="width: 120px;">Статус</th>
+                                <th style="width: 200px;">Пользователь / IP</th>
                                 <th>Детали</th>
                             </tr>
                             </thead>
                             <tbody>
                             {% for row in audit_rows %}
-                                <tr>
-                                    <td style="color: #64748b; font-size: 0.78rem;">{{ row.ts }}</td>
-                                    <td><strong style="color: #0f172a;">{{ row.email }}</strong></td>
-                                    <td style="font-family: monospace; font-size: 0.78rem; color: #475569;">{{ row.ip }}</td>
+                                <tr class="audit-row" data-category="{{ row.category }}" data-search="{{ row.ts|lower }} {{ row.email|lower }} {{ row.ip|lower }} {{ row.action|lower }} {{ row.title|lower }} {{ row.details|lower }}">
+                                    <td class="audit-time">{{ row.ts }}</td>
                                     <td>
-                                        {% if 'success' in row.action or 'save' in row.action or 'approve' in row.action %}
-                                            <span class="audit-badge audit-badge--success">{{ row.action }}</span>
-                                        {% elif 'forbidden' in row.action or 'error' in row.action or 'fail' in row.action or 'reject' in row.action %}
-                                            <span class="audit-badge audit-badge--danger">{{ row.action }}</span>
-                                        {% elif 'rate_limit' in row.action or 'warn' in row.action %}
-                                            <span class="audit-badge audit-badge--warning">{{ row.action }}</span>
-                                        {% elif 'transfer' in row.action or 'asset_add' in row.action %}
-                                            <span class="audit-badge audit-badge--info">{{ row.action }}</span>
+                                        <div class="audit-event-title">{{ row.title }}</div>
+                                        <div class="audit-event-key">{{ row.action }}</div>
+                                    </td>
+                                    <td>
+                                        {% if row.level == 'danger' %}
+                                            <span class="audit-badge audit-badge--danger">Отказ</span>
+                                        {% elif row.level == 'warning' %}
+                                            <span class="audit-badge audit-badge--warning">Внимание</span>
+                                        {% elif row.level == 'success' %}
+                                            <span class="audit-badge audit-badge--success">Успешно</span>
+                                        {% elif row.level == 'info' %}
+                                            <span class="audit-badge audit-badge--info">Инфо</span>
                                         {% else %}
-                                            <span class="audit-badge audit-badge--default">{{ row.action }}</span>
+                                            <span class="audit-badge audit-badge--default">Событие</span>
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <div class="audit-details">{{ row.details }}</div>
+                                        <div class="audit-user-email">{{ row.email or '—' }}</div>
+                                        <div class="audit-user-ip">IP: {{ row.ip or '—' }}</div>
+                                    </td>
+                                    <td>
+                                        <div class="audit-details-text">{{ row.details or '—' }}</div>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -357,14 +387,14 @@
                         </table>
                     </div>
                 {% else %}
-                    <p class="hero__text" style="margin-top: 1rem; text-align: center; color: #64748b;">Записей активности по выбранным критериям не найдено.</p>
+                    <p class="hero__text" style="margin-top: 1.5rem; text-align: center; color: #64748b;">Записей в журнале активности пока нет.</p>
                 {% endif %}
             </div>
         </div>
     </div>
 </section>
 
-<!-- Скрипт переключения вкладок с сохранением хэша в URL -->
+<!-- Скрипт переключения вкладок, категорий и быстрого живого поиска в аудите -->
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const tabButtons = document.querySelectorAll('.settings-tab-btn');
@@ -395,7 +425,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Проверяем hash в URL или GET параметры для аудита
+    // Обработка URL параметров
     const hash = window.location.hash.replace('#', '');
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('filter_email') || urlParams.has('filter_action') || urlParams.has('limit') || hash === 'audit') {
@@ -403,8 +433,68 @@ document.addEventListener('DOMContentLoaded', function() {
     } else if (hash && document.getElementById(`tab-${hash}`)) {
         activateTab(hash);
     }
+
+    // Тоггл расширенной формы фильтра
+    const toggleFilterBtn = document.getElementById('toggleServerFilterBtn');
+    const serverFilterForm = document.getElementById('auditServerFilterForm');
+    if (toggleFilterBtn && serverFilterForm) {
+        if (urlParams.has('filter_email') || urlParams.has('filter_action')) {
+            serverFilterForm.style.display = 'block';
+        }
+        toggleFilterBtn.addEventListener('click', function() {
+            serverFilterForm.style.display = serverFilterForm.style.display === 'none' ? 'block' : 'none';
+        });
+    }
+
+    // Живой поиск и фильтрация по чипам категорий
+    const searchInput = document.getElementById('auditLiveSearch');
+    const chips = document.querySelectorAll('.audit-chip');
+    const rows = document.querySelectorAll('.audit-row');
+    const statsEl = document.getElementById('auditStats');
+
+    let currentCategory = 'all';
+    let currentSearchQuery = '';
+
+    function filterAuditRows() {
+        let visibleCount = 0;
+        rows.forEach(row => {
+            const rowCategory = row.getAttribute('data-category');
+            const rowSearch = (row.getAttribute('data-search') || '').toLowerCase();
+
+            const matchesCategory = (currentCategory === 'all' || rowCategory === currentCategory);
+            const matchesSearch = (!currentSearchQuery || rowSearch.includes(currentSearchQuery));
+
+            if (matchesCategory && matchesSearch) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        if (statsEl) {
+            statsEl.textContent = `Отображается: ${visibleCount} из ${rows.length}`;
+        }
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            currentSearchQuery = this.value.trim().toLowerCase();
+            filterAuditRows();
+        });
+    }
+
+    chips.forEach(chip => {
+        chip.addEventListener('click', function() {
+            chips.forEach(c => c.classList.remove('audit-chip--active'));
+            this.classList.add('audit-chip--active');
+            currentCategory = this.getAttribute('data-category') || 'all';
+            filterAuditRows();
+        });
+    });
 });
 </script>
 {% endblock %}
+
 
 
