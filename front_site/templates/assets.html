@@ -93,17 +93,23 @@
                                   enctype="multipart/form-data"
                                   id="extra-photo-form-{{ a.id }}">
                                 <input type="file"
-                                       name="file"
+                                       name="files"
                                        accept="image/*"
+                                       multiple
                                        style="display:none;"
                                        id="extra-photo-input-{{ a.id }}"
                                        onchange="
                                            if (this.files.length) {
+                                               if (this.files.length > 10) {
+                                                   alert('Можно выбрать не более 10 фото одновременно.');
+                                                   this.value = '';
+                                                   return;
+                                               }
                                                const btn = document.getElementById('extra-btn-{{ a.id }}');
                                                if (btn) {
                                                    btn.disabled = true;
                                                    btn.dataset.originalText = btn.textContent;
-                                                   btn.textContent = 'Отправляем...';
+                                                   btn.textContent = 'Отправляем (' + this.files.length + ' фото)...';
                                                }
                                                document.getElementById('extra-photo-form-{{ a.id }}').submit();
                                            }
@@ -111,7 +117,7 @@
                                 <button type="button"
                                         id="extra-btn-{{ a.id }}"
                                         class="assets-list__link-button"
-                                        title="Прикрепить дополнительные фото к этому активу"
+                                        title="Прикрепить дополнительные фото к этому активу (до 10 фото)"
                                         onclick="document.getElementById('extra-photo-input-{{ a.id }}').click();">
                                     Загрузить доп. фото
                                 </button>
@@ -119,7 +125,7 @@
                             {% if not a.inventoried %}
                             <button type="button"
                                     class="assets-list__link-button"
-                                    title="Если наклейки нет — прикрепить фото шильдика / серийного номера"
+                                    title="Если наклейки нет — прикрепить фото шильдика / серийного номера (до 10 фото)"
                                     onclick="openNoQrModal({{ a.id }}, '{{ a.name|escape }}', '{{ a.invent|escape }}', '{{ a.serial|escape }}')">
                                 Подтвердить без QR (фото)
                             </button>
@@ -211,12 +217,13 @@
             <button type="button" class="inv-modal__close" onclick="closeNoQrModal()">&times;</button>
         </div>
         
-        <form id="noQrForm" method="post" action="" enctype="multipart/form-data" class="auth-form" style="margin-top: 1rem;">
+        <form id="noQrForm" method="post" action="" enctype="multipart/form-data" class="auth-form" style="margin-top: 1rem;" onsubmit="return handleNoQrSubmit(this)">
             <label class="auth-form__label">
-                <span>Фотография шильдика / серийного номера / устройства *</span>
-                <input type="file" name="file" accept="image/*" class="auth-form__input" required>
+                <span>Фотографии шильдика / серийного номера / устройства (от 1 до 10 фото) *</span>
+                <input type="file" name="files" id="noQrFilesInput" accept="image/*" multiple class="auth-form__input" required onchange="handleNoQrFilesChange(this)">
+                <div id="noQrFilesCounter" style="font-size: 0.82rem; color: #4338ca; font-weight: 500; margin-top: 0.35rem; display: none;"></div>
                 <small style="color: #64748b; display: block; margin-top: 0.25rem;">
-                    Сделайте чёткий снимок заводской наклейки (шильдика) с серийным номером или общего вида оборудования.
+                    Сделайте чёткие снимки (заводская наклейка с серийным номером, общий вид, экран свойств). Можно выбрать до 10 файлов.
                 </small>
             </label>
             
@@ -227,7 +234,7 @@
             
             <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
                 <button type="button" class="assets-list__link-button" onclick="closeNoQrModal()">Отмена</button>
-                <button type="submit" class="auth-form__button" style="width: auto; padding: 0.6rem 1.5rem;">Подтвердить наличие</button>
+                <button type="submit" id="noQrSubmitBtn" class="auth-form__button" style="width: auto; padding: 0.6rem 1.5rem;">Подтвердить наличие</button>
             </div>
         </form>
     </div>
@@ -237,11 +244,45 @@
 function openNoQrModal(assetId, name, invent, serial) {
     document.getElementById('noQrForm').action = '/assets/' + assetId + '/confirm-no-qr';
     document.getElementById('noQrAssetSubtitle').textContent = name + ' | Инв: ' + invent + ' | Сер: ' + serial;
+    document.getElementById('noQrFilesInput').value = '';
+    document.getElementById('noQrFilesCounter').style.display = 'none';
     document.getElementById('noQrModal').style.display = 'flex';
 }
 
 function closeNoQrModal() {
     document.getElementById('noQrModal').style.display = 'none';
+}
+
+function handleNoQrFilesChange(input) {
+    const counter = document.getElementById('noQrFilesCounter');
+    if (!input.files || input.files.length === 0) {
+        counter.style.display = 'none';
+        return;
+    }
+    if (input.files.length > 10) {
+        alert('Выбрано ' + input.files.length + ' файлов. Максимально допустимо: 10 фото.');
+        input.value = '';
+        counter.style.display = 'none';
+        return;
+    }
+    counter.textContent = '✓ Выбрано фото для отправки: ' + input.files.length + ' шт. (макс. 10)';
+    counter.style.display = 'block';
+}
+
+function handleNoQrSubmit(form) {
+    const input = document.getElementById('noQrFilesInput');
+    if (!input.files || input.files.length === 0) {
+        alert('Пожалуйста, прикрепите хотя бы одну фотографию.');
+        return false;
+    }
+    if (input.files.length > 10) {
+        alert('Максимально допустимо не более 10 фото.');
+        return false;
+    }
+    const btn = document.getElementById('noQrSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Отправка (' + input.files.length + ' фото)...';
+    return true;
 }
 </script>
 {% endblock %}

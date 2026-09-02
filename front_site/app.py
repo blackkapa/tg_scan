@@ -3219,22 +3219,18 @@ async def mark_inventory_view(request: Request, asset_id: int, file: UploadFile 
 async def mark_inventory_no_qr_view(
     request: Request,
     asset_id: int,
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...),
     comment: str = Form(""),
 ):
-    """Самоподтверждение техники пользователем без QR-кода (фото шильдика/устройства + комментарий)."""
+    """Самоподтверждение техники пользователем без QR-кода (до 10 фото шильдика/устройства + комментарий)."""
     fio = request.session.get("user_fio")
     email = request.session.get("user_email")
     if not fio or not email:
         return RedirectResponse(url="/", status_code=302)
 
-    if not file.filename:
-        request.session["flash_message"] = "Для подтверждения без QR-кода необходимо прикрепить фото техники/шильдика."
-        return RedirectResponse(url="/assets", status_code=302)
-
-    content = await file.read()
-    if not content:
-        request.session["flash_message"] = "Файл пустой, попробуйте ещё раз."
+    valid_files = [f for f in files if f.filename and f.filename.strip()][:10]
+    if not valid_files:
+        request.session["flash_message"] = "Для подтверждения без QR-кода необходимо прикрепить хотя бы одно фото (до 10 шт.)."
         return RedirectResponse(url="/assets", status_code=302)
 
     client = _build_atracker_client()
@@ -3252,16 +3248,24 @@ async def mark_inventory_no_qr_view(
             tg_username=username_comment,
         )
 
-        # Сохраняем фото в A-Tracker к карточке актива
-        try:
-            await client.upload_asset_file(
-                asset_id=asset_id,
-                file_name=file.filename,
-                content_bytes=content,
-                content_type=file.content_type or "image/jpeg",
-            )
-        except Exception as upload_err:
-            logger.warning("Failed to upload photo to A-Tracker for asset %s: %s", asset_id, upload_err)
+        # Сохраняем прикрепленные фото (до 10 шт.) в A-Tracker к карточке актива
+        uploaded_count = 0
+        uploaded_names = []
+        for f in valid_files:
+            try:
+                content = await f.read()
+                if not content:
+                    continue
+                await client.upload_asset_file(
+                    asset_id=asset_id,
+                    file_name=f.filename,
+                    content_bytes=content,
+                    content_type=f.content_type or "image/jpeg",
+                )
+                uploaded_count += 1
+                uploaded_names.append(f.filename)
+            except Exception as upload_err:
+                logger.warning("Failed to upload photo %s to A-Tracker for asset %s: %s", f.filename, asset_id, upload_err)
 
         # Сохраняем локальную запись о способе подтверждения
         save_asset_confirmation(
@@ -3270,11 +3274,11 @@ async def mark_inventory_no_qr_view(
             email=email,
             fio=fio,
             comment=user_comment,
-            photo_filename=file.filename,
+            photo_filename=", ".join(uploaded_names),
         )
 
-        _write_audit(request, action="inventory_self_confirm_no_qr", details=f"asset_id={asset_id}; comment={user_comment}")
-        request.session["flash_message"] = "Наличие техники успешно подтверждено (без QR). Фото шильдика сохранено в A-Tracker."
+        _write_audit(request, action="inventory_self_confirm_no_qr", details=f"asset_id={asset_id}; photos={uploaded_count}; comment={user_comment}")
+        request.session["flash_message"] = f"Наличие техники успешно подтверждено (без QR). Сохранено фото: {uploaded_count} шт."
     except Exception as ex:
         logger.exception("Error during self-confirmation without QR for asset %s: %s", asset_id, ex)
         request.session["flash_message"] = f"Не удалось подтвердить технику: {ex}"
@@ -3759,8 +3763,8 @@ async def admin_asset_inventory_manual(request: Request, asset_id: int):
 
     return RedirectResponse(url="/admin", status_code=302)
 @app.post("/assets/{asset_id}/photo")
-async def upload_asset_photo(request: Request, asset_id: int, file: UploadFile = File(...)):
-    """Прикрепляем дополнительные фото к активу (без проверок QR)."""
+async def upload_asset_photo(request: Request, asset_id: int, files: List[UploadFile] = File(...)):
+    """Прикрепляем дополнительные фото к активу (до 10 шт.)."""
     fio = request.session.get("user_fio")
     email = request.session.get("user_email")
     if not fio or not email:
@@ -3783,24 +3787,30 @@ async def upload_asset_photo(request: Request, asset_id: int, file: UploadFile =
     else:
         client = _build_atracker_client()
 
-    if not file.filename:
-        request.session["flash_message"] = "Не выбрано фото для загрузки."
+    valid_files = [f for f in files if f.filename and f.filename.strip()][:10]
+    if not valid_files:
+        request.session["flash_message"] = "Не выбраны фото для загрузки."
         return RedirectResponse(url="/assets", status_code=302)
 
-    content = await file.read()
-    if not content:
-        request.session["flash_message"] = "Файл пустой, попробуйте ещё раз."
-        return RedirectResponse(url="/assets", status_code=302)
+    uploaded_count = 0
+    for f in valid_files:
+        try:
+            content = await f.read()
+            if not content:
+                continue
+            await client.upload_asset_file(
+                asset_id=asset_id,
+                file_name=f.filename,
+                content_bytes=content,
+                content_type=f.content_type or "image/jpeg",
+            )
+            uploaded_count += 1
+        except Exception as ex:
+            logger.warning("Failed to upload extra photo %s for asset %s: %s", f.filename, asset_id, ex)
 
-    try:
-        await client.upload_asset_file(
-            asset_id=asset_id,
-            file_name=file.filename,
-            content_bytes=content,
-            content_type=file.content_type or "image/jpeg",
-        )
-        request.session["flash_message"] = "Фото отправлено в A‑Tracker."
-    except Exception:
+    if uploaded_count > 0:
+        request.session["flash_message"] = f"Фото успешно отправлены в A‑Tracker ({uploaded_count} шт.)."
+    else:
         request.session["flash_message"] = "Не удалось загрузить фото. Попробуйте позже."
 
     return RedirectResponse(url="/assets", status_code=302)
