@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import smtplib
 from email import encoders
 from email.mime.base import MIMEBase
@@ -15,13 +16,19 @@ import config
 logger = logging.getLogger(__name__)
 
 
+def _clean_header(val: str) -> str:
+    """Очищает строку заголовка от символов перевода строки (\r, \n) для защиты от SMTP Header Injection."""
+    return re.sub(r"[\r\n]+", " ", str(val or "")).strip()
+
+
 def send_plain_text_email(
     to_addrs: list[str],
     subject: str,
     body: str,
 ) -> Tuple[bool, str]:
     """Текстовое письмо без вложений (тот же SMTP, что и для кодов входа)."""
-    to_addrs = [a.strip() for a in to_addrs if (a or "").strip()]
+    to_addrs = [_clean_header(a) for a in to_addrs if (a or "").strip()]
+    to_addrs = [a for a in to_addrs if a]
     if not to_addrs:
         return False, "Не указаны адреса получателей."
 
@@ -30,12 +37,13 @@ def send_plain_text_email(
     use_ssl = getattr(config, "SMTP_USE_SSL", True)
     user = getattr(config, "SMTP_USER", "") or ""
     password = getattr(config, "SMTP_PASSWORD", "") or ""
-    from_addr = getattr(config, "SMTP_FROM", "")
+    from_addr = _clean_header(getattr(config, "SMTP_FROM", ""))
+    clean_subject = _clean_header(subject)
     if not host:
         return False, "Не настроена отправка почты (SMTP_HOST)."
 
     msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
+    msg["Subject"] = clean_subject
     msg["From"] = from_addr
     msg["To"] = ", ".join(to_addrs)
 
@@ -70,7 +78,8 @@ def send_email_with_attachment(
     """
     Отправка одного вложения. to_addrs — непустой список адресов.
     """
-    to_addrs = [a.strip() for a in to_addrs if (a or "").strip()]
+    to_addrs = [_clean_header(a) for a in to_addrs if (a or "").strip()]
+    to_addrs = [a for a in to_addrs if a]
     if not to_addrs:
         return False, "Не указаны адреса получателей."
 
@@ -79,7 +88,9 @@ def send_email_with_attachment(
     use_ssl = getattr(config, "SMTP_USE_SSL", True)
     user = getattr(config, "SMTP_USER", "") or ""
     password = getattr(config, "SMTP_PASSWORD", "") or ""
-    from_addr = getattr(config, "SMTP_FROM", "")
+    from_addr = _clean_header(getattr(config, "SMTP_FROM", ""))
+    clean_subject = _clean_header(subject)
+    clean_attachment_filename = _clean_header(attachment_filename)
     if not host:
         return False, "Не настроена отправка почты (SMTP_HOST)."
 
@@ -93,7 +104,7 @@ def send_email_with_attachment(
         return False, f"Не удалось прочитать файл: {ex}"
 
     msg = MIMEMultipart()
-    msg["Subject"] = subject
+    msg["Subject"] = clean_subject
     msg["From"] = from_addr
     msg["To"] = ", ".join(to_addrs)
     msg.attach(MIMEText(body, "plain", "utf-8"))
@@ -101,7 +112,7 @@ def send_email_with_attachment(
     part = MIMEBase("application", "octet-stream")
     part.set_payload(raw)
     encoders.encode_base64(part)
-    part.add_header("Content-Disposition", "attachment", filename=attachment_filename)
+    part.add_header("Content-Disposition", "attachment", filename=clean_attachment_filename)
     msg.attach(part)
 
     try:
@@ -132,7 +143,8 @@ def send_email_with_attachments(
     attachments: list[tuple[Path, str]],
 ) -> Tuple[bool, str]:
     """Отправка письма с несколькими вложениями."""
-    to_addrs = [a.strip() for a in to_addrs if (a or "").strip()]
+    to_addrs = [_clean_header(a) for a in to_addrs if (a or "").strip()]
+    to_addrs = [a for a in to_addrs if a]
     if not to_addrs:
         return False, "Не указаны адреса получателей."
     if not attachments:
@@ -143,12 +155,13 @@ def send_email_with_attachments(
     use_ssl = getattr(config, "SMTP_USE_SSL", True)
     user = getattr(config, "SMTP_USER", "") or ""
     password = getattr(config, "SMTP_PASSWORD", "") or ""
-    from_addr = getattr(config, "SMTP_FROM", "")
+    from_addr = _clean_header(getattr(config, "SMTP_FROM", ""))
+    clean_subject = _clean_header(subject)
     if not host:
         return False, "Не настроена отправка почты (SMTP_HOST)."
 
     msg = MIMEMultipart()
-    msg["Subject"] = subject
+    msg["Subject"] = clean_subject
     msg["From"] = from_addr
     msg["To"] = ", ".join(to_addrs)
     msg.attach(MIMEText(body, "plain", "utf-8"))

@@ -23,6 +23,11 @@ import errno
 import shutil
 import subprocess
 import hashlib
+import hmac
+import ipaddress
+import secrets
+import threading
+import time
 from configparser import ConfigParser
 from xml.sax.saxutils import escape
 
@@ -126,13 +131,82 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Инвентаризация техники")
 
-# Простой middleware для сессий на куках. Ключ пока захардкожен, при выкатывании на сервер
-# его лучше вынести в переменную окружения или config.ini.
+# Cookie-сессии: секретный ключ загружается из config.py (config.ini -> env -> data/.session_secret)
 app.add_middleware(
     SessionMiddleware,
-    secret_key="change-me-to-random-secret-key",
-    max_age=60 * 60 * 2,  # примерно 2 часа
+    secret_key=_config_runtime.SESSION_SECRET_KEY,
+    max_age=60 * 60 * 2,  # 2 часа
+    same_site="lax",
 )
+
+
+def _is_safe_request_origin(source: str, request: Request) -> bool:
+    """Проверяет безопасность источника запроса (Origin/Referer) с учётом IIS, прокси и корпоративной сети."""
+    if not source:
+        return True
+    try:
+        source_host = source.split("://", 1)[-1].split("/")[0].lower()
+        source_name = source_host.split(":")[0]
+
+        candidates = set()
+        for header_key in ("x-forwarded-host", "x-original-host", "host", "x-forwarded-server"):
+            val = request.headers.get(header_key)
+            if val:
+                for h in val.split(","):
+                    h_clean = h.strip().split("://", 1)[-1].split("/")[0].lower()
+                    if h_clean:
+                        candidates.add(h_clean)
+                        candidates.add(h_clean.split(":")[0])
+
+        if WEB_PUBLIC_BASE_URL:
+            pub = WEB_PUBLIC_BASE_URL.split("://", 1)[-1].split("/")[0].lower()
+            candidates.add(pub)
+            candidates.add(pub.split(":")[0])
+
+        if ATRACKER_BASE_URL:
+            atr = ATRACKER_BASE_URL.split("://", 1)[-1].split("/")[0].lower()
+            candidates.add(atr)
+            candidates.add(atr.split(":")[0])
+
+        if source_host in candidates or source_name in candidates:
+            return True
+
+        # Локальный хост / loopback
+        if source_name in ("localhost", "127.0.0.1", "::1"):
+            return True
+
+        # Корпоративные домены и поддомены (*.asg.ru, *.ovp.ru, *.local и разрешённый домен из config)
+        allowed_dom = (EMAIL_DOMAIN_ALLOWED or "").strip().lstrip("@").lower()
+        if allowed_dom and (source_name == allowed_dom or source_name.endswith("." + allowed_dom)):
+            return True
+        if source_name.endswith(".asg.ru") or source_name.endswith(".ovp.ru") or source_name.endswith(".local"):
+            return True
+
+        # Внутренние корпоративные IP (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+        try:
+            ip = ipaddress.ip_address(source_name)
+            if ip.is_private or ip.is_loopback:
+                return True
+        except ValueError:
+            pass
+
+        return False
+    except Exception as ex:
+        logger.warning("CSRF validation error: %s", ex)
+        return False
+
+
+@app.middleware("http")
+async def csrf_protect_middleware(request: Request, call_next):
+    """Защита от межсайтовой подделки запросов (CSRF) на основе проверки Origin/Referer."""
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        source = origin or referer
+        if source and not _is_safe_request_origin(source, request):
+            logger.warning("Blocked untrusted cross-origin request: source=%s, host=%s", source, request.headers.get("host"))
+            return Response(content="Forbidden: CSRF check failed.", status_code=403)
+    return await call_next(request)
 
 static_dir = BASE_DIR / "static"
 templates_dir = BASE_DIR / "templates"
@@ -2371,15 +2445,12 @@ def _parse_operation_id_from_posting_response(resp: dict) -> tuple[int | None, s
 
 
 # --- Настройки скрытой страницы /settings ---
-_SETTINGS_SECRET_PLAIN = "whorebear"
-_SETTINGS_SECRET_HASH = hashlib.sha256(_SETTINGS_SECRET_PLAIN.encode("utf-8")).hexdigest()
-
-
 def _check_settings_secret(secret: str) -> bool:
     if not secret:
         return False
     candidate = hashlib.sha256(secret.encode("utf-8")).hexdigest()
-    return candidate == _SETTINGS_SECRET_HASH
+    expected = _config_runtime.get_settings_secret_hash()
+    return hmac.compare_digest(candidate, expected)
 
 
 def _load_settings_config() -> ConfigParser:
@@ -2701,7 +2772,8 @@ async def settings_page(request: Request) -> HTMLResponse:
         "config": {
             "atracker_base_url": atracker_base_url,
             "atracker_username": atracker_username,
-            "atracker_password": atracker_password,
+            "atracker_password": "",
+            "has_atracker_password": bool(atracker_password),
             "email_domain_allowed": email_domain_allowed,
             "email_admin_emails": email_admin_emails,
             "email_bypass_code_emails": email_bypass_code_emails,
@@ -2715,7 +2787,8 @@ async def settings_page(request: Request) -> HTMLResponse:
             "smtp_port": smtp_port,
             "smtp_use_ssl": smtp_use_ssl,
             "smtp_user": smtp_user,
-            "smtp_password": smtp_password,
+            "smtp_password": "",
+            "has_smtp_password": bool(smtp_password),
             "smtp_from": smtp_from,
         },
         "audit_rows": audit_rows,
@@ -2761,18 +2834,28 @@ async def settings_save(
         request.session["flash_message"] = "Доступ запрещён."
         return RedirectResponse(url="/settings", status_code=302)
 
+    # Если пароли не менялись в форме, сохраняем существующие из config.ini
+    cfg_current = _load_settings_config()
+    final_atracker_password = atracker_password.strip() if atracker_password else ""
+    if not final_atracker_password:
+        final_atracker_password = cfg_current.get("atracker", "password", fallback="")
+
+    final_smtp_password = smtp_password.strip() if smtp_password else ""
+    if not final_smtp_password:
+        final_smtp_password = cfg_current.get("smtp", "password", fallback="")
+
     try:
         _save_settings_config(
             atracker_base_url=atracker_base_url,
             atracker_username=atracker_username,
-            atracker_password=atracker_password,
+            atracker_password=final_atracker_password,
             email_domain_allowed=email_domain_allowed,
             email_admin_emails=email_admin_emails,
             smtp_host=smtp_host,
             smtp_port=smtp_port,
             smtp_use_ssl=smtp_use_ssl,
             smtp_user=smtp_user,
-            smtp_password=smtp_password,
+            smtp_password=final_smtp_password,
             smtp_from=smtp_from,
             email_bypass_code_emails=email_bypass_code_emails,
             email_transfer_notification_to=email_transfer_notification_to,
@@ -2840,6 +2923,32 @@ async def settings_save(
     return RedirectResponse(url="/settings", status_code=302)
 
 
+_AUTH_RATE_LIMIT_IP: dict[str, list[float]] = {}
+_AUTH_COOLDOWN_EMAIL: dict[str, float] = {}
+_AUTH_RATE_LOCK = threading.Lock()
+
+
+def _check_auth_rate_limit(ip: str, email: str) -> str | None:
+    now = time.time()
+    with _AUTH_RATE_LOCK:
+        clean_ip = (ip or "").strip()
+        if clean_ip and clean_ip != "-":
+            timestamps = [t for t in _AUTH_RATE_LIMIT_IP.get(clean_ip, []) if now - t < 60]
+            if len(timestamps) >= 10:
+                return "Слишком много попыток входа с вашего IP. Пожалуйста, подождите 1 минуту."
+            timestamps.append(now)
+            _AUTH_RATE_LIMIT_IP[clean_ip] = timestamps
+
+        clean_email = (email or "").strip().lower()
+        if clean_email:
+            last_time = _AUTH_COOLDOWN_EMAIL.get(clean_email, 0)
+            if now - last_time < 30:
+                remaining = int(30 - (now - last_time))
+                return f"Код уже был отправлен. Повторный запрос возможен через {remaining} сек."
+            _AUTH_COOLDOWN_EMAIL[clean_email] = now
+    return None
+
+
 @app.post("/start-auth")
 async def start_auth(request: Request, identifier: str = Form(...)):
     """Получаем ФИО/логин/почту, ищем сотрудника и отправляем код на корпоративную почту."""
@@ -2871,6 +2980,21 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "message": error,
         }
         return render_template("index.html", context, status_code=400)
+
+    ip = request.client.host if request.client else "-"
+    rate_err = _check_auth_rate_limit(ip, email or "")
+    if rate_err:
+        _write_audit(
+            request,
+            action="auth_rate_limited",
+            details=f"email={email}\tip={ip}",
+        )
+        context = {
+            "request": request,
+            "title": "Инвентаризация техники",
+            "message": rate_err,
+        }
+        return render_template("index.html", context, status_code=429)
 
     email_norm = (email or "").strip().lower()
     if email_norm and email_norm in BYPASS_CODE_EMAILS:
@@ -2929,9 +3053,14 @@ async def submit_code(request: Request, code: str = Form(...)):
         request.session["flash_message"] = "Введите код из письма."
         return RedirectResponse(url="/enter-code", status_code=302)
 
-    result = check_code(code)
+    result = check_code(code, expected_email=pending_email)
     if not result:
-        request.session["flash_message"] = "Код неверный или истёк. Запросите новый код."
+        _write_audit(
+            request,
+            action="login_code_failed",
+            details=f"email={pending_email}",
+        )
+        request.session["flash_message"] = "Код неверный, истёк или превышено число попыток. Запросите новый код."
         return RedirectResponse(url="/enter-code", status_code=302)
 
     fio, email = result
@@ -3021,10 +3150,9 @@ async def assets_page(request: Request):
 
 @app.get("/logout")
 async def logout(request: Request):
-    """Выход из веб-приложения: очищаем сессию и возвращаем на экран входа."""
+    """Выход из веб-приложения: полностью очищаем сессию и возвращаем на экран входа."""
     _write_audit(request, action="logout")
-    for key in ("user_fio", "user_email", "is_admin", "pending_fio", "pending_email", "admin_target_fio", "admin_assets"):
-        request.session.pop(key, None)
+    request.session.clear()
     request.session["flash_message"] = "Вы вышли из системы."
     return RedirectResponse(url="/", status_code=302)
 
@@ -3142,6 +3270,25 @@ async def mark_inventory_view(request: Request, asset_id: int, file: UploadFile 
     if not fio or not email:
         return RedirectResponse(url="/", status_code=302)
 
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        try:
+            client = _build_atracker_client()
+            info, err = await client.get_asset_info(asset_id)
+        except Exception:
+            info, err = None, "service_error"
+        if err or not info or _norm_fio(info.get("OwnerFio") or "") != _norm_fio(fio):
+            _write_audit(
+                request,
+                action="inventory_forbidden",
+                details=f"asset_id={asset_id}\towner={info.get('OwnerFio') if info else 'unknown'}",
+            )
+            request.session["flash_message"] = (
+                "Нельзя отметить инвентаризацию чужого актива. "
+                "Инвентаризировать можно только технику, закреплённую за вами."
+            )
+            return RedirectResponse(url="/assets", status_code=302)
+
     # Проверяем, что файл пришёл и не пустой.
     if not file.filename:
         request.session["flash_message"] = "Не выбрано фото для инвентаризации."
@@ -3229,6 +3376,27 @@ async def mark_inventory_no_qr_view(
     email = request.session.get("user_email")
     if not fio or not email:
         return RedirectResponse(url="/", status_code=302)
+
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        try:
+            client = _build_atracker_client()
+            info, err = await client.get_asset_info(asset_id)
+        except Exception:
+            info, err = None, "service_error"
+        if err or not info or _norm_fio(info.get("OwnerFio") or "") != _norm_fio(fio):
+            _write_audit(
+                request,
+                action="inventory_forbidden",
+                details=f"asset_id={asset_id}\towner={info.get('OwnerFio') if info else 'unknown'}",
+            )
+            request.session["flash_message"] = (
+                "Нельзя отметить инвентаризацию чужого актива. "
+                "Инвентаризировать можно только технику, закреплённую за вами."
+            )
+            return RedirectResponse(url="/assets", status_code=302)
+    else:
+        client = _build_atracker_client()
 
     valid_files = [f for f in files if f.filename and f.filename.strip()][:10]
     if not valid_files:
@@ -4230,7 +4398,7 @@ async def asset_add_photo_file(request: Request, request_id: str, photo_idx: int
         return Response(status_code=404)
     ph = photos[photo_idx] if isinstance(photos[photo_idx], dict) else {}
     p = Path(ph.get("path") or "")
-    if not p.is_file():
+    if not p.is_file() or not _path_is_under_dir(p, ASSET_ADD_UPLOADS_DIR):
         return Response(status_code=404)
     suffix = p.suffix.lower()
     media = "application/octet-stream"
@@ -4472,7 +4640,7 @@ async def discrepancy_photo_file(
         return Response(status_code=404)
     ph = photos[photo_idx] if isinstance(photos[photo_idx], dict) else {}
     p = Path(ph.get("path") or "")
-    if not p.is_file():
+    if not p.is_file() or not _path_is_under_dir(p, DISCREPANCY_UPLOADS_DIR):
         return Response(status_code=404)
     suffix = p.suffix.lower()
     media = "application/octet-stream"

@@ -1,16 +1,22 @@
 import logging
-import random
+import re
+import secrets
 import smtplib
 import string
+import threading
 import time
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-_codes: Dict[str, Tuple[str, str, float]] = {}
+# _codes: Dict[code, {"fio": str, "email": str, "expires": float, "attempts": int}]
+_codes: Dict[str, Dict[str, Any]] = {}
+_codes_lock = threading.Lock()
+
 CODE_TTL_SEC = 600
 CODE_LEN = 6
+MAX_CODE_ATTEMPTS = 5
 
 
 def _norm(s: Optional[str]) -> str:
@@ -24,6 +30,17 @@ def _norm_login(login: Optional[str]) -> str:
     return value.lower()
 
 
+def _match_domain(email: str, allowed_domain: str) -> bool:
+    """Строгая проверка соответствия домена почты корпоративному домену."""
+    if not email or "@" not in email:
+        return False
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    allowed = allowed_domain.strip().lstrip("@").lower()
+    if not allowed:
+        return True
+    return domain == allowed or domain.endswith("." + allowed)
+
+
 def find_employee_by_input(
     employees: List[Dict[str, Any]],
     user_input: str,
@@ -34,14 +51,12 @@ def find_employee_by_input(
         return (None, None, "Введите ФИО, логин или почту.")
 
     raw = user_input.strip()
-    allowed = allowed_domain.lower().strip()
-    if not allowed.startswith("@"):
-        allowed = "@" + allowed
+    allowed_label = "@" + allowed_domain.strip().lstrip("@")
 
     # Ввели почту
     if "@" in raw:
-        if not raw.lower().endswith(allowed):
-            return (None, None, f"Разрешена только корпоративная почта {allowed}. Указан другой домен.")
+        if not _match_domain(raw, allowed_domain):
+            return (None, None, f"Разрешена только корпоративная почта {allowed_label}. Указан другой домен.")
         email = raw.strip()
         for emp in employees:
             if not isinstance(emp, dict):
@@ -64,8 +79,8 @@ def find_employee_by_input(
         if _norm(fio) == norm_fio or _norm_login(login) == norm_login_input:
             if not email:
                 return (None, None, "У сотрудника не указана почта в системе. Обратитесь к системному администратору.")
-            if not email.lower().endswith(allowed):
-                return (None, None, f"У сотрудника указана почта не с доменом {allowed}. Вход только через почту {allowed}.")
+            if not _match_domain(email, allowed_domain):
+                return (None, None, f"У сотрудника указана почта не с доменом {allowed_label}. Вход только через почту {allowed_label}.")
             return (fio or "—", email, None)
     return (None, None, "Сотрудник не найден. Проверьте ФИО или логин и попробуйте снова.")
 
@@ -92,23 +107,50 @@ def employee_id_by_email(employees: List[Dict[str, Any]], email: str) -> Optiona
 
 
 def create_code(fio: str, email: str) -> str:
-    """Создаёт одноразовый код и запоминает его на ограниченное время."""
-    code = "".join(random.choices(string.digits, k=CODE_LEN))
-    _codes[code] = (fio, email, time.time() + CODE_TTL_SEC)
+    """Создаёт криптостойкий одноразовый код и запоминает его на ограниченное время."""
+    now = time.time()
+    code = "".join(secrets.choice(string.digits) for _ in range(CODE_LEN))
+    with _codes_lock:
+        # Очистка устаревших кодов
+        expired_keys = [k for k, v in _codes.items() if now > v.get("expires", 0)]
+        for k in expired_keys:
+            del _codes[k]
+
+        _codes[code] = {
+            "fio": fio,
+            "email": email,
+            "expires": now + CODE_TTL_SEC,
+            "attempts": 0,
+        }
     return code
 
 
-def check_code(code: str) -> Optional[Tuple[str, str]]:
-    """Проверяет код и возвращает (ФИО, почта), если всё в порядке."""
+def check_code(code: str, expected_email: Optional[str] = None) -> Optional[Tuple[str, str]]:
+    """Проверяет код, учитывая лимит попыток и соответствие email в сессии."""
     code = (code or "").strip()
-    if not code or code not in _codes:
-        return None
-    fio, email, expires = _codes[code]
-    if time.time() > expires:
+    now = time.time()
+    with _codes_lock:
+        if not code or code not in _codes:
+            return None
+        item = _codes[code]
+        if now > item.get("expires", 0):
+            del _codes[code]
+            return None
+
+        item["attempts"] = item.get("attempts", 0) + 1
+        if item["attempts"] > MAX_CODE_ATTEMPTS:
+            del _codes[code]
+            return None
+
+        fio = item.get("fio") or ""
+        email = item.get("email") or ""
+
+        if expected_email and email.strip().lower() != expected_email.strip().lower():
+            # Если код не принадлежит этому email, не выдаем сессию
+            return None
+
         del _codes[code]
-        return None
-    del _codes[code]
-    return (fio, email)
+        return (fio, email)
 
 
 def send_code_email(to_email: str, code: str) -> Tuple[bool, str]:
@@ -123,22 +165,27 @@ def send_code_email(to_email: str, code: str) -> Tuple[bool, str]:
     from_addr = getattr(config, "SMTP_FROM", "")
     if not host:
         return (False, "Не настроена отправка почты (SMTP_HOST).")
+
+    # Санитизация заголовков от CRLF
+    clean_from = re.sub(r"[\r\n]+", "", str(from_addr or "")).strip()
+    clean_to = re.sub(r"[\r\n]+", "", str(to_email or "")).strip()
+
     try:
         msg = MIMEText(f"Код для входа в сервис инвентаризации: {code}\n\nКод действует 10 минут.", "plain", "utf-8")
         msg["Subject"] = "Код для входа"
-        msg["From"] = from_addr
-        msg["To"] = to_email
+        msg["From"] = clean_from
+        msg["To"] = clean_to
         if use_ssl or port == 465:
             with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
                 if user and password:
                     smtp.login(user, password)
-                smtp.sendmail(from_addr, [to_email], msg.as_string())
+                smtp.sendmail(clean_from, [clean_to], msg.as_string())
         else:
             with smtplib.SMTP(host, port, timeout=20) as smtp:
                 smtp.starttls()
                 if user and password:
                     smtp.login(user, password)
-                smtp.sendmail(from_addr, [to_email], msg.as_string())
+                smtp.sendmail(clean_from, [clean_to], msg.as_string())
         return (True, "")
     except smtplib.SMTPAuthenticationError as ex:
         logger.exception("Ошибка аутентификации SMTP при отправке на %s: %s", to_email, ex)
@@ -146,4 +193,5 @@ def send_code_email(to_email: str, code: str) -> Tuple[bool, str]:
     except Exception as ex:
         logger.exception("Ошибка отправки письма на %s: %s", to_email, ex)
         return (False, "Не удалось отправить письмо. Попробуйте позже.")
+
 

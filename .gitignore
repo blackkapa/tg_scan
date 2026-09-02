@@ -2,6 +2,9 @@
 
 # Секреты (токен, пароли)
 config.ini
+*.session_secret
+.session_secret
+data/.session_secret
 
 # Данные (выгрузка AD, обработанные реестры)
 ad_export.json

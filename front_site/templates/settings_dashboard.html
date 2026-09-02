@@ -28,7 +28,8 @@
                         <label>
                             <span>Пароль</span>
                             <input type="password" name="atracker_password" class="auth-form__input"
-                                   value="{{ config.atracker_password }}">
+                                   placeholder="{% if config.has_atracker_password %}•••••••• (сохранён){% else %}Введите пароль{% endif %}"
+                                   value="" autocomplete="new-password">
                         </label>
                     </div>
 
@@ -134,7 +135,8 @@
                         <label>
                             <span>SMTP password</span>
                             <input type="password" name="smtp_password" class="auth-form__input"
-                                   value="{{ config.smtp_password }}">
+                                   placeholder="{% if config.has_smtp_password %}•••••••• (сохранён){% else %}Введите пароль{% endif %}"
+                                   value="" autocomplete="new-password">
                         </label>
                         <label>
                             <span>From email</span>

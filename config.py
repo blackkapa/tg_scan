@@ -133,6 +133,61 @@ WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
 # Кнопка «Сообщить о несоответствии» на /assets (false — скрыть кнопку; маршруты /discrepancy/* остаются при discrepancy_enabled)
 WEB_DISCREPANCY_BUTTON_ENABLED = _getbool("web", "discrepancy_button_enabled", True)
 
+
+def _get_session_secret() -> str:
+    """Секретный ключ для cookie-сессий.
+    Приоритет:
+    1. Переменная окружения SESSION_SECRET_KEY
+    2. config.ini -> [web] session_secret
+    3. Локальный файл data/.session_secret (для устойчивости сессий при рестартах)
+    4. Случайный токен secrets.token_hex(32)
+    """
+    env_secret = os.environ.get("SESSION_SECRET_KEY", "").strip()
+    if env_secret:
+        return env_secret
+    ini_secret = _get("web", "session_secret", "").strip()
+    if ini_secret:
+        return ini_secret
+    data_dir = os.path.join(_config_dir, "data")
+    secret_file = os.path.join(data_dir, ".session_secret")
+    try:
+        if os.path.isfile(secret_file):
+            with open(secret_file, "r", encoding="utf-8") as f:
+                val = f.read().strip()
+                if val:
+                    return val
+        import secrets
+        generated = secrets.token_hex(32)
+        os.makedirs(data_dir, exist_ok=True)
+        with open(secret_file, "w", encoding="utf-8") as f:
+            f.write(generated)
+        return generated
+    except Exception:
+        import secrets
+        return secrets.token_hex(32)
+
+
+SESSION_SECRET_KEY = _get_session_secret()
+
+
+def get_settings_secret_hash() -> str:
+    """Хэш SHA256 секрета для страницы /settings."""
+    import hashlib
+    # 1. Явный хэш из config.ini
+    h = _get("web", "settings_secret_hash", "").strip().lower()
+    if h:
+        return h
+    # 2. Plain-секрет из env или config.ini
+    env_plain = os.environ.get("SETTINGS_SECRET", "").strip()
+    if env_plain:
+        return hashlib.sha256(env_plain.encode("utf-8")).hexdigest()
+    ini_plain = _get("web", "settings_secret", "").strip()
+    if ini_plain:
+        return hashlib.sha256(ini_plain.encode("utf-8")).hexdigest()
+    # 3. Дефолтный хэш (обратная совместимость с текущим паролем whorebear)
+    return hashlib.sha256("whorebear".encode("utf-8")).hexdigest()
+
+
 def reload_web_flags_from_disk() -> None:
     """Перечитать config.ini и обновить runtime-настройки [web]/[email] в памяти."""
     global _cfg
@@ -140,6 +195,7 @@ def reload_web_flags_from_disk() -> None:
     global WEB_DISCREPANCY_ENABLED, WEB_DISCREPANCY_BUTTON_ENABLED
     global ADMIN_EMAILS, BYPASS_CODE_EMAILS, EMAIL_DOMAIN_ALLOWED
     global TRANSFER_NOTIFICATION_TO, TRANSFER_ADMIN_CONFIRM_EMAIL
+    global SESSION_SECRET_KEY
     _cfg = ConfigParser()
     if os.path.isfile(_CONFIG_PATH):
         _cfg.read(_CONFIG_PATH, encoding="utf-8")
@@ -155,6 +211,8 @@ def reload_web_flags_from_disk() -> None:
     WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
     WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
     WEB_DISCREPANCY_BUTTON_ENABLED = _getbool("web", "discrepancy_button_enabled", True)
+    SESSION_SECRET_KEY = _get_session_secret()
+
 
 
 # ID кастомного сервиса A-Tracker: утверждение перемещения (как мастер OneLineTransit2). 0 — не вызывать.
