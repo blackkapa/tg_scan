@@ -218,12 +218,28 @@
         </div>
         
         <form id="noQrForm" method="post" action="" enctype="multipart/form-data" class="auth-form" style="margin-top: 1rem;" onsubmit="return handleNoQrSubmit(this)">
+            <!-- Скрытый инпут, куда помещаются все накопленные файлы при отправке формы -->
+            <input type="file" name="files" id="noQrFilesActualInput" multiple style="display: none;">
+            
+            <!-- Скрытый инпут диалога выбора файлов / камеры -->
+            <input type="file" id="noQrFilesPicker" accept="image/*" multiple style="display: none;" onchange="handleNoQrPickerChange(this)">
+
             <label class="auth-form__label">
-                <span>Фотографии шильдика / серийного номера / устройства (от 1 до 10 фото) *</span>
-                <input type="file" name="files" id="noQrFilesInput" accept="image/*" multiple class="auth-form__input" required onchange="handleNoQrFilesChange(this)">
-                <div id="noQrFilesCounter" style="font-size: 0.82rem; color: #4338ca; font-weight: 500; margin-top: 0.35rem; display: none;"></div>
-                <small style="color: #64748b; display: block; margin-top: 0.25rem;">
-                    Сделайте чёткие снимки (заводская наклейка с серийным номером, общий вид, экран свойств). Можно выбрать до 10 файлов.
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                    <span style="font-weight: 600;">Фотографии техники / шильдика *</span>
+                    <span id="noQrFilesCounter" style="font-size: 0.82rem; color: #4f46e5; font-weight: 600;">0 из 10 фото</span>
+                </div>
+                
+                <!-- Галерея превью выбранных фото -->
+                <div id="noQrPreviewGrid" class="no-qr-photo-grid" style="display: none;"></div>
+
+                <!-- Кнопка добавления фото -->
+                <button type="button" id="noQrAddPhotoBtn" class="no-qr-add-btn" onclick="document.getElementById('noQrFilesPicker').click();">
+                    📷 <span>+ Добавить фото (или сделать снимок)</span>
+                </button>
+
+                <small style="color: #64748b; display: block; margin-top: 0.5rem; line-height: 1.35;">
+                    Сделайте чёткие снимки (заводская наклейка с серийным номером, общий вид, экран свойств). Можно прикреплять фото по одному или выбрать несколько сразу (до 10 шт.).
                 </small>
             </label>
             
@@ -241,11 +257,13 @@
 </div>
 
 <script>
+let currentNoQrFiles = [];
+
 function openNoQrModal(assetId, name, invent, serial) {
     document.getElementById('noQrForm').action = '/assets/' + assetId + '/confirm-no-qr';
     document.getElementById('noQrAssetSubtitle').textContent = name + ' | Инв: ' + invent + ' | Сер: ' + serial;
-    document.getElementById('noQrFilesInput').value = '';
-    document.getElementById('noQrFilesCounter').style.display = 'none';
+    currentNoQrFiles = [];
+    renderNoQrPreviews();
     document.getElementById('noQrModal').style.display = 'flex';
 }
 
@@ -253,35 +271,99 @@ function closeNoQrModal() {
     document.getElementById('noQrModal').style.display = 'none';
 }
 
-function handleNoQrFilesChange(input) {
+function handleNoQrPickerChange(input) {
+    if (!input.files || input.files.length === 0) return;
+    
+    for (let i = 0; i < input.files.length; i++) {
+        if (currentNoQrFiles.length >= 10) {
+            alert('Максимально можно прикрепить до 10 фотографий.');
+            break;
+        }
+        currentNoQrFiles.push(input.files[i]);
+    }
+    
+    // Сбрасываем значение, чтобы можно было кликнуть повторно и выбрать следующий файл
+    input.value = '';
+    renderNoQrPreviews();
+}
+
+function removeNoQrFile(index) {
+    currentNoQrFiles.splice(index, 1);
+    renderNoQrPreviews();
+}
+
+function renderNoQrPreviews() {
+    const grid = document.getElementById('noQrPreviewGrid');
     const counter = document.getElementById('noQrFilesCounter');
-    if (!input.files || input.files.length === 0) {
-        counter.style.display = 'none';
+    const addBtn = document.getElementById('noQrAddPhotoBtn');
+    
+    counter.textContent = currentNoQrFiles.length + ' из 10 фото';
+    
+    if (currentNoQrFiles.length === 0) {
+        grid.innerHTML = '';
+        grid.style.display = 'none';
+        addBtn.style.display = 'flex';
+        addBtn.querySelector('span').textContent = '+ Добавить фото (или сделать снимок)';
         return;
     }
-    if (input.files.length > 10) {
-        alert('Выбрано ' + input.files.length + ' файлов. Максимально допустимо: 10 фото.');
-        input.value = '';
-        counter.style.display = 'none';
-        return;
+    
+    grid.style.display = 'grid';
+    grid.innerHTML = '';
+    
+    currentNoQrFiles.forEach((file, idx) => {
+        const item = document.createElement('div');
+        item.className = 'no-qr-photo-item';
+        
+        const img = document.createElement('img');
+        img.className = 'no-qr-photo-thumb';
+        img.src = URL.createObjectURL(file);
+        img.alt = file.name;
+        
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'no-qr-photo-remove';
+        removeBtn.innerHTML = '&times;';
+        removeBtn.title = 'Удалить фото';
+        removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            removeNoQrFile(idx);
+        };
+        
+        item.appendChild(img);
+        item.appendChild(removeBtn);
+        grid.appendChild(item);
+    });
+    
+    if (currentNoQrFiles.length >= 10) {
+        addBtn.style.display = 'none';
+    } else {
+        addBtn.style.display = 'flex';
+        addBtn.querySelector('span').textContent = '+ Добавить ещё фото (' + (10 - currentNoQrFiles.length) + ' ост.)';
     }
-    counter.textContent = '✓ Выбрано фото для отправки: ' + input.files.length + ' шт. (макс. 10)';
-    counter.style.display = 'block';
 }
 
 function handleNoQrSubmit(form) {
-    const input = document.getElementById('noQrFilesInput');
-    if (!input.files || input.files.length === 0) {
-        alert('Пожалуйста, прикрепите хотя бы одну фотографию.');
+    if (!currentNoQrFiles || currentNoQrFiles.length === 0) {
+        alert('Пожалуйста, прикрепите хотя бы одну фотографию техники или шильдика.');
         return false;
     }
-    if (input.files.length > 10) {
+    if (currentNoQrFiles.length > 10) {
         alert('Максимально допустимо не более 10 фото.');
         return false;
     }
+    
+    // Синхронизируем накопленные файлы в реальный input формы через DataTransfer
+    try {
+        const dt = new DataTransfer();
+        currentNoQrFiles.forEach(file => dt.items.add(file));
+        document.getElementById('noQrFilesActualInput').files = dt.files;
+    } catch (e) {
+        console.warn('DataTransfer error:', e);
+    }
+    
     const btn = document.getElementById('noQrSubmitBtn');
     btn.disabled = true;
-    btn.textContent = 'Отправка (' + input.files.length + ' фото)...';
+    btn.textContent = 'Отправка (' + currentNoQrFiles.length + ' фото)...';
     return true;
 }
 </script>
