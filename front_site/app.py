@@ -2672,6 +2672,67 @@ async def index(request: Request) -> HTMLResponse:
     return render_template("index.html", context)
 
 
+AUDIT_ACTION_MAP: dict[str, tuple[str, str, str]] = {
+    "login_success": ("Успешный вход", "auth", "success"),
+    "login_code_sent": ("Отправка кода", "auth", "info"),
+    "login_code_failed": ("Неверный код", "security", "danger"),
+    "auth_rate_limited": ("Лимит запросов", "security", "warning"),
+    "auth_cooldown": ("Кулдаун отправки", "security", "warning"),
+    "inventory_mark": ("Инвентаризация (QR)", "inventory", "success"),
+    "inventory_no_qr": ("Инвентаризация (без QR)", "inventory", "success"),
+    "inventory_forbidden": ("Блокировка доступа (IDOR)", "security", "danger"),
+    "view_assets": ("Просмотр активов", "inventory", "info"),
+    "transfer_start": ("Начало перемещения", "requests", "info"),
+    "transfer_create": ("Создание перемещения", "requests", "info"),
+    "transfer_confirmed_by_recipient": ("Подтверждение получателем", "requests", "info"),
+    "transfer_scan_uploaded": ("Загрузка скана акта", "requests", "info"),
+    "transfer_completed": ("Перемещение завершено", "requests", "success"),
+    "transfer_cancelled": ("Отмена перемещения", "requests", "warning"),
+    "transfer_rejected_by_recipient": ("Отклонено получателем", "requests", "danger"),
+    "transfer_approve": ("Согласование перемещения", "requests", "success"),
+    "transfer_sign": ("Подписание акта", "requests", "success"),
+    "asset_add_create": ("Заявка на добавление", "requests", "info"),
+    "asset_add_approved": ("Одобрение добавления", "requests", "success"),
+    "asset_add_rejected": ("Отклонение добавления", "requests", "danger"),
+    "asset_add_approve": ("Одобрение добавления", "requests", "success"),
+    "asset_add_reject": ("Отклонение добавления", "requests", "warning"),
+    "discrepancy_create": ("Заявка о несоответствии", "requests", "info"),
+    "discrepancy_update": ("Статус несоответствия", "requests", "info"),
+    "settings_open": ("Просмотр настроек", "system", "info"),
+    "settings_save": ("Сохранение настроек", "system", "success"),
+    "settings_save_error": ("Ошибка сохранения", "security", "danger"),
+    "logout": ("Выход из системы", "auth", "info"),
+}
+
+
+def _find_audit_log_files() -> list[Path]:
+    """Находит все существующие файлы логов аудита в каталогах приложения."""
+    candidates = [
+        BASE_DIR / "logs" / "audit.log",
+        BASE_DIR.parent / "logs" / "audit.log",
+        Path.cwd() / "logs" / "audit.log",
+        Path.cwd() / "front_site" / "logs" / "audit.log",
+        BASE_DIR / "data" / "audit.log",
+        BASE_DIR.parent / "data" / "audit.log",
+        Path.cwd() / "data" / "audit.log",
+        BASE_DIR / "audit.log",
+        BASE_DIR.parent / "audit.log",
+        Path.cwd() / "audit.log",
+    ]
+    found: list[Path] = []
+    seen: set[Path] = set()
+    for p in candidates:
+        try:
+            if p.is_file() and p.stat().st_size > 0:
+                res = p.resolve()
+                if res not in seen:
+                    seen.add(res)
+                    found.append(p)
+        except Exception:
+            pass
+    return found
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request) -> HTMLResponse:
     """Скрытая страница настроек: сначала вводим секрет, затем показываем дашборд."""
@@ -2719,9 +2780,9 @@ async def settings_page(request: Request) -> HTMLResponse:
 
     # Фильтры для читаемости аудита (по query-параметрам)
     try:
-        limit = int(request.query_params.get("limit", "100"))
+        limit = int(request.query_params.get("limit", "150"))
     except ValueError:
-        limit = 100
+        limit = 150
     limit = max(10, min(limit, 500))
     filter_email = (request.query_params.get("filter_email", "") or "").strip().lower()
     filter_action = (request.query_params.get("filter_action", "") or "").strip().lower()
@@ -2729,40 +2790,72 @@ async def settings_page(request: Request) -> HTMLResponse:
     # Сразу пишем текущий визит
     _write_audit(request, action="settings_open")
 
-    # Читаем audit.log
+    # Читаем audit.log из всех доступных мест
     audit_rows = []
-    if AUDIT_LOG_PATH.is_file():
+    log_files = _find_audit_log_files()
+    raw_lines: list[str] = []
+    for log_path in log_files:
         try:
-            with AUDIT_LOG_PATH.open("r", encoding="utf-8") as f:
-                window = max(300, limit * 4)
-                lines = f.readlines()[-window:]
-            for line in reversed(lines):
-                parts = line.rstrip("\n").split("\t")
-                if len(parts) < 5:
-                    continue
-                ts, email, ip, action, details = parts[:5]
-                action_clean = action.strip()
-                if filter_email and filter_email not in (email or "").lower():
-                    continue
-                if filter_action and filter_action not in action_clean.lower():
-                    continue
-                title, category, level = AUDIT_ACTION_MAP.get(action_clean, (action_clean, "system", "default"))
-                audit_rows.append(
-                    {
-                        "ts": ts,
-                        "email": email,
-                        "ip": ip,
-                        "action": action_clean,
-                        "title": title,
-                        "category": category,
-                        "level": level,
-                        "details": details,
-                    }
-                )
-        except Exception:
-            audit_rows = []
+            with log_path.open("r", encoding="utf-8", errors="replace") as f:
+                raw_lines.extend(f.readlines())
+        except Exception as ex:
+            logger.warning("Error reading audit log from %s: %s", log_path, ex)
 
-    audit_rows = audit_rows[:limit]
+    # Сортируем строки по дате (самые свежие первыми)
+    def _parse_ts(line_str: str) -> str:
+        s = line_str.strip()
+        return s[:19] if len(s) >= 19 else ""
+
+    raw_lines.sort(key=_parse_ts, reverse=True)
+
+    for line in raw_lines:
+        line = line.rstrip("\r\n")
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 4:
+            ts = parts[0].strip()
+            email = parts[1].strip()
+            ip = parts[2].strip()
+            action_clean = parts[3].strip()
+            details = "\t".join(parts[4:]).strip() if len(parts) > 4 else ""
+        elif len(parts) >= 1:
+            tokens = line.split()
+            if len(tokens) >= 4 and len(tokens[0]) == 10 and len(tokens[1]) == 8:
+                ts = f"{tokens[0]} {tokens[1]}"
+                email = tokens[2] if len(tokens) > 2 else "-"
+                ip = tokens[3] if len(tokens) > 3 else "-"
+                action_clean = tokens[4] if len(tokens) > 4 else "event"
+                details = " ".join(tokens[5:]) if len(tokens) > 5 else ""
+            else:
+                ts = "-"
+                email = "-"
+                ip = "-"
+                action_clean = "event"
+                details = line
+        else:
+            continue
+
+        if filter_email and filter_email not in (email or "").lower():
+            continue
+        if filter_action and filter_action not in action_clean.lower():
+            continue
+
+        title, category, level = AUDIT_ACTION_MAP.get(action_clean, (action_clean, "system", "default"))
+        audit_rows.append(
+            {
+                "ts": ts,
+                "email": email,
+                "ip": ip,
+                "action": action_clean,
+                "title": title,
+                "category": category,
+                "level": level,
+                "details": details,
+            }
+        )
+        if len(audit_rows) >= limit:
+            break
 
     context = {
         "request": request,
