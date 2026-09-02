@@ -1410,4 +1410,37 @@ html, body {
     to { transform: rotate(360deg); }
 }
 
+.inv-kpi-card--mail {
+    border-left: 4px solid #8b5cf6;
+}
+.inv-kpi-card--mail .inv-kpi-card__num {
+    color: #7c3aed;
+}
+
+.inv-remind-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: #f5f3ff;
+    color: #6d28d9;
+    border: 1px solid #ddd6fe;
+    padding: 0.15rem 0.45rem;
+    border-radius: 6px;
+    font-size: 0.76rem;
+    margin-top: 0.2rem;
+}
+
+.inv-badge-count {
+    display: inline-block;
+    background: #3b82f6;
+    color: #ffffff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0 0.35rem;
+    border-radius: 999px;
+    margin-left: 0.2rem;
+    line-height: 1.3;
+}
+
+
 

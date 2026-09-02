@@ -59,6 +59,10 @@
                 <div class="inv-kpi-card__num">{{ stats.inventoried_assets_total }} / {{ stats.assets_total }}</div>
                 <div class="inv-kpi-card__label">Единиц проверено ({{ stats.overall_assets_pct }}%)</div>
             </div>
+            <div class="inv-kpi-card inv-kpi-card--mail">
+                <div class="inv-kpi-card__num">{{ stats.total_reminders_sent }}</div>
+                <div class="inv-kpi-card__label">Напоминаний отправлено</div>
+            </div>
         </div>
 
         <!-- Filters & Search Toolbar -->
@@ -81,10 +85,10 @@
                 <table class="inv-table" id="employeesTable">
                     <thead>
                         <tr>
-                            <th style="width: 28%;">Сотрудник</th>
+                            <th style="width: 27%;">Сотрудник</th>
                             <th style="width: 14%;">Статус</th>
                             <th style="width: 22%;">Прогресс инвентаризации</th>
-                            <th style="width: 16%;">Посл. проверка</th>
+                            <th style="width: 17%;">Посл. проверка / Напоминания</th>
                             <th style="width: 20%; text-align: right;">Действия</th>
                         </tr>
                     </thead>
@@ -130,11 +134,15 @@
                                 <td>
                                     <div style="font-size: 0.85rem; color: #444;">{{ emp.last_checked_at or "—" }}</div>
                                     {% if emp.completed_at %}
-                                        <div style="font-size: 0.75rem; color: #2e7d32;">Завершена: {{ emp.completed_at }}</div>
+                                        <div style="font-size: 0.75rem; color: #2e7d32; font-weight: 500;">Завершена: {{ emp.completed_at }}</div>
                                     {% endif %}
-                                    {% if emp.last_reminded_at %}
-                                        <div style="font-size: 0.75rem; color: #6b7280;" title="Отправлено напоминаний: {{ emp.remind_count }}">
-                                            ✉️ Напомнили: {{ emp.last_reminded_at[:10] }} ({{ emp.remind_count }})
+                                    {% if (emp.remind_count or 0) > 0 %}
+                                        <div class="inv-remind-tag" title="Последнее отправлено: {{ emp.last_reminded_at }}">
+                                            ✉️ Напоминаний: <strong>{{ emp.remind_count }}</strong>
+                                        </div>
+                                    {% else %}
+                                        <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.15rem;">
+                                            ✉️ Напоминаний: 0
                                         </div>
                                     {% endif %}
                                 </td>
@@ -154,9 +162,9 @@
 
                                         <!-- Напомнить на email (если не завершено и есть email и техника > 0) -->
                                         {% if emp.email and emp.status != 'completed' and emp.status != 'no_assets' %}
-                                            <form method="post" action="/admin/inventory-control/{{ emp.id }}/remind" style="display: inline;" onsubmit="return confirm('Отправить письмо-напоминание на {{ emp.email }}?');">
-                                                <button type="submit" class="inv-action-btn inv-action-btn--mail" title="Отправить напоминание на почту">
-                                                    ✉️
+                                            <form method="post" action="/admin/inventory-control/{{ emp.id }}/remind" style="display: inline;" onsubmit="return confirm('Отправить письмо-напоминание на {{ emp.email }}? (Ранее отправлено: {{ emp.remind_count or 0 }})');">
+                                                <button type="submit" class="inv-action-btn inv-action-btn--mail" title="Отправить напоминание на почту (ранее отправлено: {{ emp.remind_count or 0 }})">
+                                                    ✉️{% if (emp.remind_count or 0) > 0 %}<span class="inv-badge-count">{{ emp.remind_count }}</span>{% endif %}
                                                 </button>
                                             </form>
                                         {% endif %}

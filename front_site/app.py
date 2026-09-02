@@ -5801,6 +5801,7 @@ async def admin_inventory_control_dashboard(request: Request):
     assets_total = sum(int(e.get("total_assets") or 0) for e in employees)
     inventoried_assets_total = sum(int(e.get("inventoried_assets") or 0) for e in employees)
     overall_assets_pct = round((inventoried_assets_total / assets_total * 100)) if assets_total > 0 else 0
+    total_reminders_sent = sum(int(e.get("remind_count") or 0) for e in employees)
 
     stats = {
         "total_count": total_count,
@@ -5811,6 +5812,7 @@ async def admin_inventory_control_dashboard(request: Request):
         "assets_total": assets_total,
         "inventoried_assets_total": inventoried_assets_total,
         "overall_assets_pct": overall_assets_pct,
+        "total_reminders_sent": total_reminders_sent,
     }
 
     context = {
