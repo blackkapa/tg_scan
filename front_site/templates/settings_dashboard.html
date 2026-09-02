@@ -1,214 +1,353 @@
 {% extends "base.html" %}
 
-{% block title %}Настройки{% endblock %}
+{% block title %}Настройки системы{% endblock %}
 
 {% block content %}
 <section class="hero">
     <div class="hero__card settings-card">
-        <h1 class="hero__title">Настройки</h1>
+        <div class="settings-header">
+            <div>
+                <h1 class="hero__title" style="margin-bottom: 0.25rem;">Настройки системы</h1>
+                <p class="settings-section-card__desc">Управление интеграциями, модулями сайта, доступом и аудит событий</p>
+            </div>
+        </div>
+
         {% if message %}
-            <p class="auth-form__message" style="margin-top: 0.25rem;">{{ message }}</p>
+            <div class="auth-form__message" style="margin-bottom: 1.25rem; padding: 0.75rem 1rem; border-radius: 8px; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;">
+                {{ message }}
+            </div>
         {% endif %}
 
-        <div class="settings-layout">
-            <div class="settings-form">
-                <h2 class="settings-subtitle">A-Tracker</h2>
-                <form method="post" action="/settings/save" class="settings-form__inner">
-                    <div class="settings-field-group">
-                        <label>
-                            <span>Базовый URL</span>
+        <!-- Навигация по вкладкам -->
+        <div class="settings-tabs" role="tablist">
+            <button type="button" class="settings-tab-btn settings-tab-btn--active" data-tab="integrations" role="tab">
+                <span>⚙️</span> Интеграции и Сервисы
+            </button>
+            <button type="button" class="settings-tab-btn" data-tab="modules" role="tab">
+                <span>🧩</span> Модули сайта
+            </button>
+            <button type="button" class="settings-tab-btn" data-tab="access" role="tab">
+                <span>👥</span> Доступы и Рассылки
+            </button>
+            <button type="button" class="settings-tab-btn" data-tab="audit" role="tab">
+                <span>📋</span> Журнал активности
+            </button>
+        </div>
+
+        <!-- Основная форма настроек (охватывает вкладки 1, 2, 3) -->
+        <form method="post" action="/settings/save" id="settingsForm">
+            <!-- ВКЛАДКА 1: Интеграции -->
+            <div class="settings-panel settings-panel--active" id="tab-integrations" role="tabpanel">
+                <!-- A-Tracker Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">🏢 Интеграция с A-Tracker</h2>
+                            <p class="settings-section-card__desc">Параметры подключения к корпоративной системе A-Tracker API</p>
+                        </div>
+                    </div>
+                    <div class="settings-grid-2col">
+                        <label class="settings-field">
+                            <span>Базовый URL A-Tracker</span>
                             <input type="text" name="atracker_base_url" class="auth-form__input"
+                                   placeholder="http://10.115.21.77"
                                    value="{{ config.atracker_base_url }}">
                         </label>
-                        <label>
-                            <span>Логин</span>
+                        <label class="settings-field">
+                            <span>Логин API</span>
                             <input type="text" name="atracker_username" class="auth-form__input"
+                                   placeholder="invent_atr"
                                    value="{{ config.atracker_username }}">
                         </label>
-                        <label>
-                            <span>Пароль</span>
+                        <label class="settings-field">
+                            <span>Пароль API</span>
                             <input type="password" name="atracker_password" class="auth-form__input"
                                    placeholder="{% if config.has_atracker_password %}•••••••• (сохранён){% else %}Введите пароль{% endif %}"
                                    value="" autocomplete="new-password">
                         </label>
                     </div>
+                </div>
 
-                    <h2 class="settings-subtitle">Веб-сайт</h2>
-                    <div class="settings-field-group">
-                        <label>
-                            <span>Публичный URL (без завершающего /)</span>
-                            <input type="text" name="web_public_base_url" class="auth-form__input"
-                                   placeholder="https://inventory.example.com"
-                                   value="{{ config.web_public_base_url }}">
-                        </label>
-                        <p class="auth-form__hint" style="margin-top: 0;">Используется в ссылках в письмах о заявках на перемещение техники.</p>
-                        <label class="settings-checkbox-label" style="margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
-                            <input type="checkbox"
-                                   name="web_transfer_enabled"
-                                   value="1"
-                                   style="margin-top: 0.2rem;"
-                                   {% if config.web_transfer_enabled %}checked{% endif %}>
-                            <span>Включить заявки на перемещение техники: чекбоксы и кнопка на «Мои активы», /transfer/start, карточки и списки transfer в «Заявках» и «Перемещения (админ)». Пункт «Заявки» в шапке показывается, если включено это или «Добавить технику» ниже.</span>
-                        </label>
-                        <label class="settings-checkbox-label" style="margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
-                            <input type="checkbox"
-                                   name="web_asset_add_button_enabled"
-                                   value="1"
-                                   style="margin-top: 0.2rem;"
-                                   {% if config.web_asset_add_button_enabled %}checked{% endif %}>
-                            <span>Включить блок «Добавить технику»: кнопка на «Мои активы», форма /asset-add/start, просмотр заявок /asset-add/…, список в разделе «Заявки» и в «Добавление техники (админ)». Если снять — всё это скрыто и недоступно по прямым ссылкам (редирект в список активов или админ-раздел).</span>
-                        </label>
-                        <label class="settings-checkbox-label" style="margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer;">
-                            <input type="checkbox"
-                                   name="web_discrepancy_button_enabled"
-                                   value="1"
-                                   style="margin-top: 0.2rem;"
-                                   {% if config.web_discrepancy_button_enabled %}checked{% endif %}>
-                            <span>Показывать кнопку «Сообщить о несоответствии» на «Мои активы». Если снять — кнопка скрыта; форма /discrepancy/start и заявки в «Заявках» остаются, если контур включён в config.ini (discrepancy_enabled).</span>
-                        </label>
+                <!-- SMTP Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">✉️ Почтовый сервер SMTP</h2>
+                            <p class="settings-section-card__desc">Параметры почтового шлюза для отправки кодов входа и актов</p>
+                        </div>
                     </div>
-
-                    <h2 class="settings-subtitle">Email / домены</h2>
-                    <div class="settings-field-group">
-                        <label>
-                            <span>Разрешённый домен</span>
-                            <input type="text" name="email_domain_allowed" class="auth-form__input"
-                                   value="{{ config.email_domain_allowed }}">
-                        </label>
-                        <label>
-                            <span>Админские email (через запятую или пробел)</span>
-                            <textarea
-                                    name="email_admin_emails"
-                                    class="auth-form__input"
-                                    rows="4"
-                                    placeholder="Напр.: admin1@asg.ru, admin2@asg.ru (или по одному в строке)"
-                            >{{ config.email_admin_emails }}</textarea>
-                        </label>
-                        <label>
-                            <span>Вход без кода из письма (bypass_code_emails)</span>
-                            <textarea
-                                    name="email_bypass_code_emails"
-                                    class="auth-form__input"
-                                    rows="3"
-                                    placeholder="Почты через запятую"
-                            >{{ config.email_bypass_code_emails }}</textarea>
-                        </label>
-                        <label>
-                            <span>Копия скана акта (бухгалтерия) (transfer_notification_to)</span>
-                            <input type="text" name="email_transfer_notification_to" class="auth-form__input"
-                                   placeholder="book1@asg.ru, book2@asg.ru"
-                                   value="{{ config.email_transfer_notification_to }}">
-                        </label>
-                        <label>
-                            <span>Операционное подтверждение перемещения (сервисдеск) (transfer_admin_confirm_email)</span>
-                            <input type="text" name="email_transfer_admin_confirm_email" class="auth-form__input"
-                                   placeholder="sd@asg.ru, engineer@asg.ru"
-                                   value="{{ config.email_transfer_admin_confirm_email }}">
-                        </label>
-                        <p class="auth-form__hint" style="margin-top: 0;">
-                            В сервисдеск уходит только факт создания заявок (перемещение/несоответствие/добавление техники). По скану акта отправка идет только в бухгалтерию.
-                        </p>
-                    </div>
-
-                    <h2 class="settings-subtitle">SMTP</h2>
-                    <div class="settings-field-group">
-                        <label>
-                            <span>SMTP host</span>
+                    <div class="settings-grid-2col">
+                        <label class="settings-field">
+                            <span>SMTP Host</span>
                             <input type="text" name="smtp_host" class="auth-form__input"
+                                   placeholder="smtp.asg.ru"
                                    value="{{ config.smtp_host }}">
                         </label>
-                        <label>
-                            <span>SMTP port</span>
+                        <label class="settings-field">
+                            <span>SMTP Port</span>
                             <input type="text" name="smtp_port" class="auth-form__input"
+                                   placeholder="25 или 465 / 587"
                                    value="{{ config.smtp_port }}">
                         </label>
-                        <label>
-                            <span>Использовать SSL (true/false)</span>
-                            <input type="text" name="smtp_use_ssl" class="auth-form__input"
-                                   value="{{ config.smtp_use_ssl }}">
+                        <label class="settings-field">
+                            <span>Режим шифрования (SSL/TLS)</span>
+                            <select name="smtp_use_ssl" class="auth-form__input">
+                                <option value="true" {% if config.smtp_use_ssl in ('true', '1', 'True', True) %}selected{% endif %}>SSL / TLS (Порт 465)</option>
+                                <option value="false" {% if config.smtp_use_ssl not in ('true', '1', 'True', True) %}selected{% endif %}>STARTTLS / Без SSL (Порт 25 / 587)</option>
+                            </select>
                         </label>
-                        <label>
-                            <span>SMTP user</span>
+                        <label class="settings-field">
+                            <span>Имя пользователя SMTP</span>
                             <input type="text" name="smtp_user" class="auth-form__input"
+                                   placeholder="no-reply@asg.ru"
                                    value="{{ config.smtp_user }}">
                         </label>
-                        <label>
-                            <span>SMTP password</span>
+                        <label class="settings-field">
+                            <span>Пароль SMTP</span>
                             <input type="password" name="smtp_password" class="auth-form__input"
                                    placeholder="{% if config.has_smtp_password %}•••••••• (сохранён){% else %}Введите пароль{% endif %}"
                                    value="" autocomplete="new-password">
                         </label>
-                        <label>
-                            <span>From email</span>
+                        <label class="settings-field">
+                            <span>Email отправителя (From)</span>
                             <input type="text" name="smtp_from" class="auth-form__input"
+                                   placeholder="inventory@asg.ru"
                                    value="{{ config.smtp_from }}">
                         </label>
                     </div>
+                </div>
 
-                    <div class="settings-actions">
-                        <button type="submit" class="auth-form__button">Сохранить настройки</button>
+                <!-- Settings Secret Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">🛡️ Доступ к разделу настроек</h2>
+                            <p class="settings-section-card__desc">Секретный пароль для разблокировки страницы <code>/settings</code></p>
+                        </div>
                     </div>
-                </form>
+                    <div class="settings-grid-2col">
+                        <label class="settings-field">
+                            <span>Новый пароль страницы настроек</span>
+                            <input type="password" name="settings_secret" class="auth-form__input"
+                                   placeholder="Оставьте пустым, чтобы не изменять текущий пароль"
+                                   value="" autocomplete="new-password">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Footer Action -->
+                <div class="settings-save-footer">
+                    <span class="auth-form__hint">Изменения применятся сразу после сохранения</span>
+                    <button type="submit" class="auth-form__button" style="min-width: 200px;">💾 Сохранить настройки</button>
+                </div>
             </div>
 
-            <div class="settings-audit">
-                <h2 class="settings-subtitle">Активность</h2>
+            <!-- ВКЛАДКА 2: Модули сайта -->
+            <div class="settings-panel" id="tab-modules" role="tabpanel">
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">🧩 Функциональные модули</h2>
+                            <p class="settings-section-card__desc">Включение и скрытие отдельных бизнес-контуров для пользователей</p>
+                        </div>
+                    </div>
 
-                <form method="get" action="/settings" class="settings-audit-filters">
+                    <!-- Module 1: Transfer -->
+                    <div class="settings-module-card">
+                        <div class="settings-module-card__info">
+                            <div class="settings-module-card__title">📦 Заявки на перемещение техники</div>
+                            <div class="settings-module-card__desc">
+                                Включает выбор оборудования в «Мои активы», форму оформления передачи <code>/transfer/start</code>, генерацию PDF-актов приёма-передачи и админ-реестр перемещений.
+                            </div>
+                        </div>
+                        <label class="switch" title="Включить / отключить модуль перемещения">
+                            <input type="checkbox" name="web_transfer_enabled" value="1"
+                                   {% if config.web_transfer_enabled %}checked{% endif %}>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Module 2: Asset Add -->
+                    <div class="settings-module-card">
+                        <div class="settings-module-card__info">
+                            <div class="settings-module-card__title">➕ Добавление неучтенной техники</div>
+                            <div class="settings-module-card__desc">
+                                Включает кнопку «Добавить технику» в личном кабинете, форму подачи заявки <code>/asset-add/start</code> с фото шильдиков и раздел согласования новых позиций.
+                            </div>
+                        </div>
+                        <label class="switch" title="Включить / отключить модуль добавления техники">
+                            <input type="checkbox" name="web_asset_add_button_enabled" value="1"
+                                   {% if config.web_asset_add_button_enabled %}checked{% endif %}>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <!-- Module 3: Discrepancy -->
+                    <div class="settings-module-card">
+                        <div class="settings-module-card__info">
+                            <div class="settings-module-card__title">⚠️ Сообщения о несоответствиях</div>
+                            <div class="settings-module-card__desc">
+                                Отображает кнопку «Сообщить о несоответствии» в карточке оборудования для быстрой фиксации расхождений между фактическим состоянием и базой.
+                            </div>
+                        </div>
+                        <label class="switch" title="Включить / отключить кнопку несоответствий">
+                            <input type="checkbox" name="web_discrepancy_button_enabled" value="1"
+                                   {% if config.web_discrepancy_button_enabled %}checked{% endif %}>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Footer Action -->
+                <div class="settings-save-footer">
+                    <span class="auth-form__hint">Изменения флагов модулей применяются мгновенно</span>
+                    <button type="submit" class="auth-form__button" style="min-width: 200px;">💾 Сохранить настройки</button>
+                </div>
+            </div>
+
+            <!-- ВКЛАДКА 3: Доступы и Рассылки -->
+            <div class="settings-panel" id="tab-access" role="tabpanel">
+                <!-- Corporate Access Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">👥 Корпоративный доступ</h2>
+                            <p class="settings-section-card__desc">Ограничение доменов почты и назначение прав администраторов</p>
+                        </div>
+                    </div>
+                    <div class="settings-grid-2col">
+                        <label class="settings-field" style="grid-column: 1 / -1;">
+                            <span>Разрешённый корпоративный домен</span>
+                            <input type="text" name="email_domain_allowed" class="auth-form__input"
+                                   placeholder="asg.ru"
+                                   value="{{ config.email_domain_allowed }}">
+                        </label>
+                        <label class="settings-field">
+                            <span>Администраторы (email через запятую или по одному в строке)</span>
+                            <textarea name="email_admin_emails" class="auth-form__input" rows="4"
+                                      placeholder="admin1@asg.ru, admin2@asg.ru">{{ config.email_admin_emails }}</textarea>
+                        </label>
+                        <label class="settings-field">
+                            <span>Вход без кода из письма (bypass_code_emails)</span>
+                            <textarea name="email_bypass_code_emails" class="auth-form__input" rows="4"
+                                      placeholder="testuser@asg.ru">{{ config.email_bypass_code_emails }}</textarea>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Notification Emails Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">📬 Служебные адреса и уведомления</h2>
+                            <p class="settings-section-card__desc">Маршрутизация писем с актами и сервисными событиями</p>
+                        </div>
+                    </div>
+                    <div class="settings-grid-2col">
+                        <label class="settings-field" style="grid-column: 1 / -1;">
+                            <span>Публичный URL сайта (для ссылок в письмах)</span>
+                            <input type="text" name="web_public_base_url" class="auth-form__input"
+                                   placeholder="https://inventory.asg.ru"
+                                   value="{{ config.web_public_base_url }}">
+                        </label>
+                        <label class="settings-field">
+                            <span>Копия скана акта (Бухгалтерия)</span>
+                            <input type="text" name="email_transfer_notification_to" class="auth-form__input"
+                                   placeholder="bookkeeping@asg.ru"
+                                   value="{{ config.email_transfer_notification_to }}">
+                        </label>
+                        <label class="settings-field">
+                            <span>Сервисдеск (подтверждение перемещений)</span>
+                            <input type="text" name="email_transfer_admin_confirm_email" class="auth-form__input"
+                                   placeholder="sd@asg.ru, engineer@asg.ru"
+                                   value="{{ config.email_transfer_admin_confirm_email }}">
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Footer Action -->
+                <div class="settings-save-footer">
+                    <span class="auth-form__hint">Рассылки используют указанные адреса</span>
+                    <button type="submit" class="auth-form__button" style="min-width: 200px;">💾 Сохранить настройки</button>
+                </div>
+            </div>
+        </form>
+
+        <!-- ВКЛАДКА 4: Журнал аудита -->
+        <div class="settings-panel" id="tab-audit" role="tabpanel">
+            <div class="settings-section-card">
+                <div class="settings-section-card__header">
+                    <div>
+                        <h2 class="settings-section-card__title">📋 Журнал активности и безопасности</h2>
+                        <p class="settings-section-card__desc">История входов, инвентаризаций, изменений настроек и событий защиты</p>
+                    </div>
+                </div>
+
+                <!-- Форма фильтров -->
+                <form method="get" action="/settings" class="settings-audit-filters" id="auditFilterForm">
                     <div class="settings-audit-filters__row">
                         <label>
-                            <span>Email</span>
-                            <input
-                                    type="text"
-                                    name="filter_email"
-                                    class="auth-form__input"
-                                    value="{{ request.query_params.get('filter_email','') }}">
+                            <span>Поиск по Email</span>
+                            <input type="text" name="filter_email" class="auth-form__input"
+                                   placeholder="user@asg.ru"
+                                   value="{{ request.query_params.get('filter_email','') }}">
                         </label>
                         <label>
-                            <span>Действие</span>
-                            <input
-                                    type="text"
-                                    name="filter_action"
-                                    class="auth-form__input"
-                                    value="{{ request.query_params.get('filter_action','') }}">
+                            <span>Тип действия</span>
+                            <input type="text" name="filter_action" class="auth-form__input"
+                                   placeholder="Напр.: login_success, settings_save"
+                                   value="{{ request.query_params.get('filter_action','') }}">
                         </label>
-                        <label>
-                            <span>Лимит</span>
+                        <label style="flex: 0 0 140px;">
+                            <span>Количество строк</span>
                             <select name="limit" class="auth-form__input">
-                                {% for n in [20,40,60,100,200] %}
+                                {% for n in [20, 50, 100, 200] %}
                                     <option value="{{ n }}"
-                                            {% if request.query_params.get('limit','60') == (n|string) %}selected{% endif %}>
-                                        {{ n }}
+                                            {% if request.query_params.get('limit','50') == (n|string) %}selected{% endif %}>
+                                        {{ n }} записей
                                     </option>
                                 {% endfor %}
                             </select>
                         </label>
                     </div>
                     <div class="settings-audit-filters__actions">
-                        <button type="submit" class="auth-form__button">Показать</button>
-                        <a href="/settings" class="assets-list__link" style="margin-left: 0.7rem;">Сбросить</a>
+                        <button type="submit" class="auth-form__button" style="padding: 0.5rem 1.1rem; font-size: 0.88rem;">🔍 Применить фильтр</button>
+                        <a href="/settings#audit" class="assets-list__link" style="font-size: 0.88rem;">Сбросить фильтры</a>
                     </div>
                 </form>
 
+                <!-- Таблица аудита -->
                 {% if audit_rows %}
                     <div class="settings-audit-table-wrapper">
                         <table class="settings-audit-table">
                             <thead>
                             <tr>
-                                <th>Время</th>
+                                <th style="width: 155px;">Время</th>
                                 <th>Email</th>
-                                <th>IP</th>
-                                <th>Действие</th>
+                                <th style="width: 120px;">IP</th>
+                                <th style="width: 170px;">Событие</th>
                                 <th>Детали</th>
                             </tr>
                             </thead>
                             <tbody>
                             {% for row in audit_rows %}
                                 <tr>
-                                    <td>{{ row.ts }}</td>
-                                    <td>{{ row.email }}</td>
-                                    <td>{{ row.ip }}</td>
-                                    <td><span class="audit-action">{{ row.action }}</span></td>
+                                    <td style="color: #64748b; font-size: 0.78rem;">{{ row.ts }}</td>
+                                    <td><strong style="color: #0f172a;">{{ row.email }}</strong></td>
+                                    <td style="font-family: monospace; font-size: 0.78rem; color: #475569;">{{ row.ip }}</td>
+                                    <td>
+                                        {% if 'success' in row.action or 'save' in row.action or 'approve' in row.action %}
+                                            <span class="audit-badge audit-badge--success">{{ row.action }}</span>
+                                        {% elif 'forbidden' in row.action or 'error' in row.action or 'fail' in row.action or 'reject' in row.action %}
+                                            <span class="audit-badge audit-badge--danger">{{ row.action }}</span>
+                                        {% elif 'rate_limit' in row.action or 'warn' in row.action %}
+                                            <span class="audit-badge audit-badge--warning">{{ row.action }}</span>
+                                        {% elif 'transfer' in row.action or 'asset_add' in row.action %}
+                                            <span class="audit-badge audit-badge--info">{{ row.action }}</span>
+                                        {% else %}
+                                            <span class="audit-badge audit-badge--default">{{ row.action }}</span>
+                                        {% endif %}
+                                    </td>
                                     <td>
                                         <div class="audit-details">{{ row.details }}</div>
                                     </td>
@@ -218,11 +357,54 @@
                         </table>
                     </div>
                 {% else %}
-                    <p class="hero__text" style="margin-top: 0.5rem;">Записей активности пока нет.</p>
+                    <p class="hero__text" style="margin-top: 1rem; text-align: center; color: #64748b;">Записей активности по выбранным критериям не найдено.</p>
                 {% endif %}
             </div>
         </div>
     </div>
 </section>
+
+<!-- Скрипт переключения вкладок с сохранением хэша в URL -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tabButtons = document.querySelectorAll('.settings-tab-btn');
+    const panels = document.querySelectorAll('.settings-panel');
+
+    function activateTab(tabId) {
+        tabButtons.forEach(btn => {
+            const isActive = btn.getAttribute('data-tab') === tabId;
+            btn.classList.toggle('settings-tab-btn--active', isActive);
+            btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+
+        panels.forEach(panel => {
+            const isActive = panel.id === `tab-${tabId}`;
+            panel.classList.toggle('settings-panel--active', isActive);
+        });
+
+        if (history.replaceState) {
+            history.replaceState(null, '', `#${tabId}`);
+        }
+    }
+
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            const tabId = this.getAttribute('data-tab');
+            activateTab(tabId);
+        });
+    });
+
+    // Проверяем hash в URL или GET параметры для аудита
+    const hash = window.location.hash.replace('#', '');
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('filter_email') || urlParams.has('filter_action') || urlParams.has('limit') || hash === 'audit') {
+        activateTab('audit');
+    } else if (hash && document.getElementById(`tab-${hash}`)) {
+        activateTab(hash);
+    }
+});
+</script>
 {% endblock %}
+
 

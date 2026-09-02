@@ -2484,6 +2484,7 @@ def _save_settings_config(
     web_asset_add_button_enabled: bool = True,
     web_transfer_enabled: bool = True,
     web_discrepancy_button_enabled: bool = True,
+    settings_secret: str = "",
 ) -> None:
     cfg = _load_settings_config()
 
@@ -2517,14 +2518,16 @@ def _save_settings_config(
         "discrepancy_button_enabled",
         "true" if web_discrepancy_button_enabled else "false",
     )
+    if settings_secret and settings_secret.strip():
+        cfg.set("web", "settings_secret", settings_secret.strip())
 
     _ensure_section(cfg, "smtp")
     if smtp_host:
         cfg.set("smtp", "host", smtp_host.strip())
     if smtp_port:
         cfg.set("smtp", "port", smtp_port.strip())
-    if smtp_use_ssl:
-        cfg.set("smtp", "use_ssl", smtp_use_ssl.strip())
+    clean_ssl = "true" if str(smtp_use_ssl).strip().lower() in ("true", "1", "yes", "on", "ssl") else "false"
+    cfg.set("smtp", "use_ssl", clean_ssl)
     if smtp_user:
         cfg.set("smtp", "user", smtp_user.strip())
     if smtp_password is not None:
@@ -2790,6 +2793,7 @@ async def settings_page(request: Request) -> HTMLResponse:
             "smtp_password": "",
             "has_smtp_password": bool(smtp_password),
             "smtp_from": smtp_from,
+            "has_settings_secret": bool(cfg.get("web", "settings_secret", fallback="") if cfg.has_section("web") else False),
         },
         "audit_rows": audit_rows,
     }
@@ -2828,6 +2832,7 @@ async def settings_save(
     web_asset_add_button_enabled: str = Form("0"),
     web_transfer_enabled: str = Form("0"),
     web_discrepancy_button_enabled: str = Form("0"),
+    settings_secret: str = Form(""),
 ):
     """Сохранение настроек в config.ini и попытка перезапуска сервиса."""
     if not request.session.get("settings_ok"):
@@ -2861,11 +2866,12 @@ async def settings_save(
             email_transfer_notification_to=email_transfer_notification_to,
             email_transfer_admin_confirm_email=email_transfer_admin_confirm_email,
             web_public_base_url=web_public_base_url,
-            web_asset_add_button_enabled=(str(web_asset_add_button_enabled).strip() == "1"),
-            web_transfer_enabled=(str(web_transfer_enabled).strip() == "1"),
+            web_asset_add_button_enabled=(str(web_asset_add_button_enabled).strip() in ("1", "true", "on", "yes")),
+            web_transfer_enabled=(str(web_transfer_enabled).strip() in ("1", "true", "on", "yes")),
             web_discrepancy_button_enabled=(
-                str(web_discrepancy_button_enabled).strip() == "1"
+                str(web_discrepancy_button_enabled).strip() in ("1", "true", "on", "yes")
             ),
+            settings_secret=settings_secret.strip(),
         )
         reload_web_flags_from_disk()
         globals()["EMAIL_DOMAIN_ALLOWED"] = _config_runtime.EMAIL_DOMAIN_ALLOWED
