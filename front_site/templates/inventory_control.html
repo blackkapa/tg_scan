@@ -135,6 +135,11 @@
                                         <div class="inv-progress-bar">
                                             <div class="inv-progress-fill {% if emp.progress_pct == 100 %}inv-progress-fill--success{% elif emp.progress_pct > 0 %}inv-progress-fill--warning{% else %}inv-progress-fill--empty{% endif %}" style="width: {{ emp.progress_pct }}%;"></div>
                                         </div>
+                                        {% if (emp.self_no_qr_count or 0) > 0 %}
+                                            <div style="margin-top: 0.3rem;">
+                                                <span class="inv-badge-mini inv-badge-mini--self" title="Подтверждено без QR (по фото шильдика): {{ emp.self_no_qr_count }} шт.">✋ {{ emp.self_no_qr_count }} без QR</span>
+                                            </div>
+                                        {% endif %}
                                     {% endif %}
                                 </td>
                                 <td>
@@ -470,19 +475,41 @@ function openAssetsModal(assets, fio, status, invCount, totalCount) {
         let html = '<div class="inv-assets-list">';
         assets.forEach(a => {
             const isDone = a.inventoried;
+            let badgeHtml = '';
+            let cardClass = 'inv-asset-card--pending';
+
+            if (isDone) {
+                if (a.method === 'self_no_qr') {
+                    badgeHtml = '<span class="inv-badge inv-badge--self" title="Подтверждено сотрудником без QR по фото шильдика">✋ Без QR (фото)</span>';
+                    cardClass = 'inv-asset-card--self';
+                } else if (a.method === 'admin_manual') {
+                    badgeHtml = '<span class="inv-badge inv-badge--neutral" title="Отмечено администратором">🛠️ Администратором</span>';
+                    cardClass = 'inv-asset-card--done';
+                } else {
+                    badgeHtml = '<span class="inv-badge inv-badge--success" title="Отсканирован физический QR-код">✓ По QR-коду</span>';
+                    cardClass = 'inv-asset-card--done';
+                }
+            } else {
+                badgeHtml = '<span class="inv-badge inv-badge--danger">✖ Не проведён</span>';
+            }
+
+            let commentHtml = '';
+            if (a.user_comment) {
+                commentHtml = `<div style="font-size: 0.78rem; color: #4338ca; margin-top: 0.25rem; background: #eef2ff; padding: 2px 6px; border-radius: 4px; display: inline-block;">💬 ${escapeHtml(a.user_comment)}</div>`;
+            }
+
             html += `
-                <div class="inv-asset-card ${isDone ? 'inv-asset-card--done' : 'inv-asset-card--pending'}">
-                    <div style="font-size: 1.25rem; line-height: 1;">${isDone ? '✅' : '❌'}</div>
+                <div class="inv-asset-card ${cardClass}">
+                    <div style="font-size: 1.25rem; line-height: 1;">${isDone ? (a.method === 'self_no_qr' ? '✋' : '✅') : '❌'}</div>
                     <div style="flex: 1;">
                         <div style="font-weight: 600; font-size: 0.95rem; color: #1e293b;">${escapeHtml(a.name)}</div>
                         <div style="font-size: 0.82rem; color: #64748b; margin-top: 0.2rem;">
                             Инв. №: <strong>${escapeHtml(a.invent || '—')}</strong> &nbsp;|&nbsp; Сер. №: <strong>${escapeHtml(a.serial || '—')}</strong>
                         </div>
+                        ${commentHtml}
                     </div>
                     <div>
-                        <span class="inv-badge ${isDone ? 'inv-badge--success' : 'inv-badge--danger'}">
-                            ${isDone ? 'Проведён' : 'Не проведён'}
-                        </span>
+                        ${badgeHtml}
                     </div>
                 </div>
             `;

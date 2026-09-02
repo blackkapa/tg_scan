@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 INVENTORY_CONTROL_STORE_PATH = DATA_DIR / "inventory_control.json"
+CONFIRMATIONS_STORE_PATH = DATA_DIR / "inventory_confirmations.json"
 
 STATUS_COMPLETED = "completed"
 STATUS_IN_PROGRESS = "in_progress"
@@ -29,6 +30,18 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_ERROR: "Ошибка",
 }
 
+METHOD_QR = "qr"
+METHOD_SELF_NO_QR = "self_no_qr"
+METHOD_ADMIN_MANUAL = "admin_manual"
+METHOD_NONE = "none"
+
+METHOD_LABELS: dict[str, str] = {
+    METHOD_QR: "По QR-коду",
+    METHOD_SELF_NO_QR: "Без QR (фото шильдика)",
+    METHOD_ADMIN_MANUAL: "Администратором",
+    METHOD_NONE: "Не проведён",
+}
+
 
 def _now_str() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -38,6 +51,56 @@ def _ensure_store() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not INVENTORY_CONTROL_STORE_PATH.exists():
         INVENTORY_CONTROL_STORE_PATH.write_text("[]", encoding="utf-8")
+    if not CONFIRMATIONS_STORE_PATH.exists():
+        CONFIRMATIONS_STORE_PATH.write_text("{}", encoding="utf-8")
+
+
+def _load_confirmations() -> Dict[str, Any]:
+    _ensure_store()
+    try:
+        parsed = json.loads(CONFIRMATIONS_STORE_PATH.read_text(encoding="utf-8"))
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return {}
+
+
+def _save_confirmations(data: Dict[str, Any]) -> None:
+    _ensure_store()
+    CONFIRMATIONS_STORE_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def get_asset_confirmation(asset_id: int | str) -> Optional[Dict[str, Any]]:
+    confs = _load_confirmations()
+    return confs.get(str(asset_id))
+
+
+def save_asset_confirmation(
+    asset_id: int | str,
+    method: str,
+    email: str,
+    fio: str,
+    comment: str = "",
+    photo_filename: str = "",
+) -> Dict[str, Any]:
+    confs = _load_confirmations()
+    rec = {
+        "asset_id": int(asset_id),
+        "method": method,
+        "method_label": METHOD_LABELS.get(method, method),
+        "email": email,
+        "fio": fio,
+        "comment": comment,
+        "photo_filename": photo_filename,
+        "confirmed_at": _now_str(),
+    }
+    confs[str(asset_id)] = rec
+    _save_confirmations(confs)
+    return rec
 
 
 def _save_items(items: List[Dict[str, Any]]) -> None:
@@ -95,6 +158,8 @@ def save_controlled_employee(record: Dict[str, Any]) -> Dict[str, Any]:
     record.setdefault("created_at", _now_str())
     record.setdefault("remind_count", 0)
     record.setdefault("last_reminded_at", "")
+    record.setdefault("self_no_qr_count", 0)
+    record.setdefault("qr_count", 0)
 
     found = False
     for idx, item in enumerate(items):
@@ -113,18 +178,21 @@ def compute_inventory_summary(
     raw_assets: List[Dict[str, Any]],
     is_inventoried_fn,
     inv_number_fn=None,
-) -> tuple[int, int, int, str, list[dict]]:
+) -> tuple[int, int, int, str, list[dict], int, int]:
     """
-    Анализирует список активов сотрудника:
+    Анализирует список активов сотрудника.
     Возвращает:
-    (total_assets, inventoried_assets, progress_pct, status, assets_snapshot)
+    (total_assets, inventoried_assets, progress_pct, status, assets_snapshot, qr_count, self_no_qr_count)
     """
     total = len(raw_assets)
     if total == 0:
-        return 0, 0, 0, STATUS_NO_ASSETS, []
+        return 0, 0, 0, STATUS_NO_ASSETS, [], 0, 0
 
     inventoried_count = 0
+    qr_count = 0
+    self_no_qr_count = 0
     snapshot: list[dict] = []
+    confs = _load_confirmations()
 
     for a in raw_assets:
         if not isinstance(a, dict):
@@ -139,8 +207,35 @@ def compute_inventory_summary(
             invent = str(a.get("sInventNumber") or a.get("sInventoryNo") or "—").strip()
         
         is_inv = bool(is_inventoried_fn(a))
+        method = METHOD_NONE
+        user_comment = ""
+        photo_filename = ""
+        confirmed_at = ""
+
         if is_inv:
             inventoried_count += 1
+            conf = confs.get(str(asset_id))
+            if conf:
+                method = conf.get("method", METHOD_QR)
+                user_comment = conf.get("comment", "")
+                photo_filename = conf.get("photo_filename", "")
+                confirmed_at = conf.get("confirmed_at", "")
+            else:
+                # Проверяем комментарии из A-Tracker
+                s_comm = str(a.get("sComment") or "") + str(a.get("sInventUser") or "")
+                if "self-confirm-no-qr" in s_comm or "manual-no-qr" in s_comm:
+                    method = METHOD_SELF_NO_QR
+                elif "manual-admin" in s_comm or "manual-web-invent" in s_comm:
+                    method = METHOD_ADMIN_MANUAL
+                else:
+                    method = METHOD_QR
+
+            if method == METHOD_SELF_NO_QR:
+                self_no_qr_count += 1
+            elif method == METHOD_QR:
+                qr_count += 1
+
+        method_label = METHOD_LABELS.get(method, "Проведён" if is_inv else "Не проведён")
 
         snapshot.append({
             "id": asset_id,
@@ -148,6 +243,11 @@ def compute_inventory_summary(
             "serial": serial,
             "invent": invent or "—",
             "inventoried": is_inv,
+            "method": method,
+            "method_label": method_label,
+            "user_comment": user_comment,
+            "photo_filename": photo_filename,
+            "confirmed_at": confirmed_at,
         })
 
     pct = int(round((inventoried_count / total) * 100)) if total > 0 else 0
@@ -159,7 +259,7 @@ def compute_inventory_summary(
     else:
         status = STATUS_NOT_STARTED
 
-    return total, inventoried_count, pct, status, snapshot
+    return total, inventoried_count, pct, status, snapshot, qr_count, self_no_qr_count
 
 
 async def refresh_controlled_employee(
@@ -172,7 +272,7 @@ async def refresh_controlled_employee(
     fio = str(emp_record.get("fio") or "").strip()
     try:
         raw_assets = await client.get_assets_by_fio(fio)
-        total, inv_count, pct, status, snapshot = compute_inventory_summary(
+        total, inv_count, pct, status, snapshot, qr_cnt, self_no_qr_cnt = compute_inventory_summary(
             raw_assets or [],
             is_inventoried_fn,
             inv_number_fn,
@@ -183,6 +283,8 @@ async def refresh_controlled_employee(
         emp_record["status"] = status
         emp_record["status_label"] = STATUS_LABELS.get(status, status)
         emp_record["assets_snapshot"] = snapshot
+        emp_record["qr_count"] = qr_cnt
+        emp_record["self_no_qr_count"] = self_no_qr_cnt
         emp_record["last_checked_at"] = _now_str()
         if status == STATUS_COMPLETED and not emp_record.get("completed_at"):
             emp_record["completed_at"] = _now_str()
@@ -236,6 +338,8 @@ def generate_inventory_control_csv() -> bytes:
         "Статус инвентаризации",
         "Прогресс (%)",
         "Проверено единиц",
+        "По QR-коду",
+        "Без QR (фото)",
         "Всего единиц",
         "Дата последней проверки",
         "Дата завершения 100%",
@@ -248,11 +352,22 @@ def generate_inventory_control_csv() -> bytes:
         status_label = STATUS_LABELS.get(it.get("status", ""), it.get("status", ""))
         assets_text = ""
         for a in it.get("assets_snapshot") or []:
-            mark = "[✓]" if a.get("inventoried") else "[ ]"
+            method = a.get("method")
+            if a.get("inventoried"):
+                if method == METHOD_SELF_NO_QR:
+                    mark = "[✓ Без QR]"
+                elif method == METHOD_ADMIN_MANUAL:
+                    mark = "[✓ Админ]"
+                else:
+                    mark = "[✓ QR]"
+            else:
+                mark = "[ ]"
+
             name = a.get("name") or f"ID {a.get('id')}"
             inv = a.get("invent") or "—"
             sn = a.get("serial") or "—"
-            assets_text += f"{mark} {name} (Инв: {inv}, Сер: {sn}) | "
+            comm = f" ({a['user_comment']})" if a.get("user_comment") else ""
+            assets_text += f"{mark} {name} (Инв: {inv}, Сер: {sn}{comm}) | "
 
         writer.writerow([
             it.get("fio") or "",
@@ -261,6 +376,8 @@ def generate_inventory_control_csv() -> bytes:
             status_label,
             f"{it.get('progress_pct', 0)}%",
             it.get("inventoried_assets", 0),
+            it.get("qr_count", 0),
+            it.get("self_no_qr_count", 0),
             it.get("total_assets", 0),
             it.get("last_checked_at") or "",
             it.get("completed_at") or "",

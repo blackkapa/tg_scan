@@ -116,6 +116,14 @@
                                     Загрузить доп. фото
                                 </button>
                             </form>
+                            {% if not a.inventoried %}
+                            <button type="button"
+                                    class="assets-list__link-button"
+                                    title="Если наклейки нет — прикрепить фото шильдика / серийного номера"
+                                    onclick="openNoQrModal({{ a.id }}, '{{ a.name|escape }}', '{{ a.invent|escape }}', '{{ a.serial|escape }}')">
+                                Подтвердить без QR (фото)
+                            </button>
+                            {% endif %}
                             <a href="/assets/{{ a.id }}/qr-label"
                                class="assets-list__link-button"
                                title="Открыть страницу с ярлыком и QR-кодом для печати">
@@ -190,5 +198,51 @@
         </div>
     </div>
 </section>
+
+<!-- Модальное окно: Подтверждение техники без QR -->
+<div id="noQrModal" class="inv-modal" style="display: none;">
+    <div class="inv-modal__backdrop" onclick="closeNoQrModal()"></div>
+    <div class="inv-modal__content">
+        <div class="inv-modal__header">
+            <div>
+                <h2 style="margin: 0; font-size: 1.25rem;">Подтверждение техники без QR</h2>
+                <div id="noQrAssetSubtitle" style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;"></div>
+            </div>
+            <button type="button" class="inv-modal__close" onclick="closeNoQrModal()">&times;</button>
+        </div>
+        
+        <form id="noQrForm" method="post" action="" enctype="multipart/form-data" class="auth-form" style="margin-top: 1rem;">
+            <label class="auth-form__label">
+                <span>Фотография шильдика / серийного номера / устройства *</span>
+                <input type="file" name="file" accept="image/*" class="auth-form__input" required>
+                <small style="color: #64748b; display: block; margin-top: 0.25rem;">
+                    Сделайте чёткий снимок заводской наклейки (шильдика) с серийным номером или общего вида оборудования.
+                </small>
+            </label>
+            
+            <label class="auth-form__label" style="margin-top: 0.75rem;">
+                <span>Комментарий (опционально)</span>
+                <input type="text" name="comment" class="auth-form__input" placeholder="Например: наклейка отсутствует, работаю удалённо">
+            </label>
+            
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+                <button type="button" class="assets-list__link-button" onclick="closeNoQrModal()">Отмена</button>
+                <button type="submit" class="auth-form__button" style="width: auto; padding: 0.6rem 1.5rem;">Подтвердить наличие</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openNoQrModal(assetId, name, invent, serial) {
+    document.getElementById('noQrForm').action = '/assets/' + assetId + '/confirm-no-qr';
+    document.getElementById('noQrAssetSubtitle').textContent = name + ' | Инв: ' + invent + ' | Сер: ' + serial;
+    document.getElementById('noQrModal').style.display = 'flex';
+}
+
+function closeNoQrModal() {
+    document.getElementById('noQrModal').style.display = 'none';
+}
+</script>
 {% endblock %}
 

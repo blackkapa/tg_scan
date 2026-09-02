@@ -95,6 +95,11 @@ from .inventory_control import (
     STATUS_NO_ASSETS,
     STATUS_ERROR,
     STATUS_LABELS,
+    METHOD_QR,
+    METHOD_SELF_NO_QR,
+    METHOD_ADMIN_MANUAL,
+    save_asset_confirmation,
+    get_asset_confirmation,
     list_controlled_employees,
     get_controlled_employee,
     get_controlled_employee_by_email,
@@ -3192,7 +3197,62 @@ async def mark_inventory_view(request: Request, asset_id: int, file: UploadFile 
             tg_user_id=0,
             tg_username=username_comment,
         )
-        # Пытаемся прикрепить то же фото к активу.
+        save_asset_confirmation(
+            asset_id=asset_id,
+            method=METHOD_QR,
+            email=email,
+            fio=fio,
+            photo_filename=file.filename,
+        )
+        request.session["flash_message"] = (
+            "Инвентаризация по активу успешно отмечена по фото, снимок сохранён в A‑Tracker."
+        )
+    except Exception:
+        request.session["flash_message"] = (
+            "Не удалось отметить инвентаризацию по фото. Попробуйте ещё раз чуть позже."
+        )
+
+    return RedirectResponse(url="/assets", status_code=302)
+
+
+@app.post("/assets/{asset_id}/confirm-no-qr")
+async def mark_inventory_no_qr_view(
+    request: Request,
+    asset_id: int,
+    file: UploadFile = File(...),
+    comment: str = Form(""),
+):
+    """Самоподтверждение техники пользователем без QR-кода (фото шильдика/устройства + комментарий)."""
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+
+    if not file.filename:
+        request.session["flash_message"] = "Для подтверждения без QR-кода необходимо прикрепить фото техники/шильдика."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    content = await file.read()
+    if not content:
+        request.session["flash_message"] = "Файл пустой, попробуйте ещё раз."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    client = _build_atracker_client()
+    user_comment = (comment or "").strip()
+    username_comment = f"Username=self-confirm-no-qr by {email} at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    if user_comment:
+        username_comment += f" [Comment: {user_comment}]"
+
+    try:
+        # Отмечаем инвентаризацию в A-Tracker
+        await client.mark_inventory(
+            asset_id=asset_id,
+            fio=fio,
+            tg_user_id=0,
+            tg_username=username_comment,
+        )
+
+        # Сохраняем фото в A-Tracker к карточке актива
         try:
             await client.upload_asset_file(
                 asset_id=asset_id,
@@ -3200,19 +3260,24 @@ async def mark_inventory_view(request: Request, asset_id: int, file: UploadFile 
                 content_bytes=content,
                 content_type=file.content_type or "image/jpeg",
             )
-            request.session["flash_message"] = (
-                "Инвентаризация по активу успешно отмечена по фото, снимок сохранён в A‑Tracker."
-            )
-        except Exception:
-            # Инвентаризация прошла, но фото не сохранили.
-            request.session["flash_message"] = (
-                "Инвентаризация по активу успешно отмечена по фото, "
-                "но не удалось сохранить снимок в A‑Tracker."
-            )
-    except Exception:
-        request.session["flash_message"] = (
-            "Не удалось отметить инвентаризацию по фото. Попробуйте ещё раз чуть позже."
+        except Exception as upload_err:
+            logger.warning("Failed to upload photo to A-Tracker for asset %s: %s", asset_id, upload_err)
+
+        # Сохраняем локальную запись о способе подтверждения
+        save_asset_confirmation(
+            asset_id=asset_id,
+            method=METHOD_SELF_NO_QR,
+            email=email,
+            fio=fio,
+            comment=user_comment,
+            photo_filename=file.filename,
         )
+
+        _write_audit(request, action="inventory_self_confirm_no_qr", details=f"asset_id={asset_id}; comment={user_comment}")
+        request.session["flash_message"] = "Наличие техники успешно подтверждено (без QR). Фото шильдика сохранено в A-Tracker."
+    except Exception as ex:
+        logger.exception("Error during self-confirmation without QR for asset %s: %s", asset_id, ex)
+        request.session["flash_message"] = f"Не удалось подтвердить технику: {ex}"
 
     return RedirectResponse(url="/assets", status_code=302)
 
