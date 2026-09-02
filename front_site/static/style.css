@@ -1442,5 +1442,105 @@ html, body {
     line-height: 1.3;
 }
 
+/* Sticky Batch Actions Toolbar */
+.inv-batch-bar {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 90;
+    width: min(900px, calc(100% - 2rem));
+    animation: inv-slide-up 0.25s ease-out;
+}
+
+.inv-batch-bar__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    background: #1e293b;
+    color: #ffffff;
+    padding: 0.85rem 1.25rem;
+    border-radius: 12px;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+}
+
+.inv-batch-bar__info {
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+.inv-batch-bar__info strong {
+    color: #38bdf8;
+    font-size: 1.1rem;
+}
+
+.inv-batch-bar__actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.inv-batch-btn {
+    border: none;
+    padding: 0.5rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.inv-batch-btn--mail {
+    background: #3b82f6;
+    color: #ffffff;
+}
+.inv-batch-btn--mail:hover {
+    background: #2563eb;
+}
+
+.inv-batch-btn--refresh {
+    background: #475569;
+    color: #ffffff;
+}
+.inv-batch-btn--refresh:hover {
+    background: #64748b;
+}
+
+.inv-batch-btn--delete {
+    background: #ef4444;
+    color: #ffffff;
+}
+.inv-batch-btn--delete:hover {
+    background: #dc2626;
+}
+
+.inv-batch-btn--cancel {
+    background: transparent;
+    color: #94a3b8;
+    border: 1px solid #475569;
+}
+.inv-batch-btn--cancel:hover {
+    background: #334155;
+    color: #ffffff;
+}
+
+@keyframes inv-slide-up {
+    from {
+        transform: translate(-50%, 20px);
+        opacity: 0;
+    }
+    to {
+        transform: translate(-50%, 0);
+        opacity: 1;
+    }
+}
+
+
 
 

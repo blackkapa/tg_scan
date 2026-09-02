@@ -6112,6 +6112,128 @@ async def admin_inventory_control_export_csv(request: Request):
     )
 
 
+@app.post("/admin/inventory-control/batch-action")
+async def admin_inventory_control_batch_action(
+    request: Request,
+    action: str = Form(""),
+    selected_ids: str = Form(""),
+):
+    """Массовые действия над выбранными сотрудниками: remind, refresh, delete."""
+    is_admin = bool(request.session.get("is_admin"))
+    if not is_admin:
+        return RedirectResponse(url="/assets", status_code=302)
+
+    ids = [x.strip() for x in (selected_ids or "").split(",") if x.strip()]
+    if not ids:
+        request.session["flash_message"] = "Не выбрано ни одного сотрудника."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    client = _build_atracker_client()
+    portal_url = (WEB_PUBLIC_BASE_URL or "https://myinvent.ovp.ru").rstrip("/")
+
+    if action == "remind":
+        sent_count = 0
+        skip_count = 0
+        err_list = []
+        for emp_id in ids:
+            rec = get_controlled_employee(emp_id)
+            if not rec:
+                continue
+            to_email = (rec.get("email") or "").strip()
+            st = rec.get("status")
+            tot = int(rec.get("total_assets") or 0)
+            if not to_email or st == STATUS_COMPLETED or st == STATUS_NO_ASSETS or tot == 0:
+                skip_count += 1
+                continue
+
+            fio = rec.get("fio") or "Сотрудник"
+            inv = int(rec.get("inventoried_assets") or 0)
+            left = tot - inv
+
+            uncompleted_list = []
+            for a in rec.get("assets_snapshot") or []:
+                if not a.get("inventoried"):
+                    uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
+
+            assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
+
+            body = f"""Здравствуйте, {fio}!
+
+Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.
+
+Техника, ожидающая инвентаризации ({left} из {tot} ед.):
+{assets_block}
+
+Для проведения инвентаризации перейдите по ссылке:
+{portal_url}
+
+Что необходимо сделать (краткая инструкция):
+1. Подключитесь к корпоративному VPN (сервис работает только в контуре нашей корпоративной сети).
+2. Перейдите по ссылке: {portal_url}
+3. Введите вашу корпоративную почту или логин и укажите полученный одноразовый код.
+4. В разделе «Мои активы» найдите вашу технику из списка выше.
+5. Нажмите кнопку «Инвентаризировать по фото» (или сфотографируйте наклейку с QR-кодом / шильдик устройства).
+6. Прикрепите чёткое фото оборудования и нажмите «Отправить».
+7. Убедитесь, что статус позиции сменился на зелёную отметку «Проведён».
+
+В случае возникновения вопросов обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии 8-800-302-12-21.
+
+---
+Служба технической поддержки ООО "АСГ"
+"""
+            try:
+                ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
+                if ok:
+                    rec["last_reminded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    rec["remind_count"] = int(rec.get("remind_count") or 0) + 1
+                    save_controlled_employee(rec)
+                    sent_count += 1
+                else:
+                    err_list.append(f"{to_email}: {err}")
+            except Exception as ex:
+                err_list.append(f"{to_email}: {ex}")
+
+        msg = f"Массовая рассылка завершена: успешно отправлено {sent_count} писем."
+        if skip_count > 0:
+            msg += f" Пропущено (уже завершили или без техники): {skip_count}."
+        if err_list:
+            msg += f" Ошибок отправки: {len(err_list)}."
+        request.session["flash_message"] = msg
+        _write_audit(request, action="inventory_control_batch_remind", details=f"sent={sent_count}; skipped={skip_count}; errors={len(err_list)}")
+
+    elif action == "refresh":
+        updated_count = 0
+        err_count = 0
+        for emp_id in ids:
+            rec = get_controlled_employee(emp_id)
+            if not rec:
+                continue
+            try:
+                await refresh_controlled_employee(
+                    rec,
+                    client,
+                    _is_asset_inventoried,
+                    inventory_number_from_atracker_dict,
+                )
+                updated_count += 1
+            except Exception:
+                err_count += 1
+        request.session["flash_message"] = f"Обновлены статусы для {updated_count} выбранных сотрудников."
+
+    elif action == "delete":
+        del_count = 0
+        for emp_id in ids:
+            if delete_controlled_employee(emp_id):
+                del_count += 1
+        request.session["flash_message"] = f"Удалено из списка контроля сотрудников: {del_count}."
+        _write_audit(request, action="inventory_control_batch_delete", details=f"count={del_count}")
+
+    else:
+        request.session["flash_message"] = "Неизвестное действие."
+
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
 def create_app() -> FastAPI:
     """Фабрика приложения на случай, если потом будем собирать exe или подключать к IIS."""
     return app

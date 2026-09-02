@@ -85,16 +85,22 @@
                 <table class="inv-table" id="employeesTable">
                     <thead>
                         <tr>
-                            <th style="width: 27%;">Сотрудник</th>
+                            <th style="width: 40px; text-align: center;">
+                                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" title="Выбрать всех видимых сотрудников" style="cursor: pointer; width: 16px; height: 16px;">
+                            </th>
+                            <th style="width: 26%;">Сотрудник</th>
                             <th style="width: 14%;">Статус</th>
-                            <th style="width: 22%;">Прогресс инвентаризации</th>
+                            <th style="width: 21%;">Прогресс инвентаризации</th>
                             <th style="width: 17%;">Посл. проверка / Напоминания</th>
-                            <th style="width: 20%; text-align: right;">Действия</th>
+                            <th style="width: 18%; text-align: right;">Действия</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for emp in employees %}
                             <tr class="inv-row" data-status="{{ emp.status }}" data-search="{{ emp.fio|lower }} {{ emp.email|lower }} {{ emp.login|lower }}">
+                                <td style="text-align: center;">
+                                    <input type="checkbox" class="emp-checkbox" value="{{ emp.id }}" data-fio="{{ emp.fio|escape }}" data-email="{{ emp.email or '' }}" data-status="{{ emp.status }}" data-total="{{ emp.total_assets }}" onchange="updateBatchToolbar()" style="cursor: pointer; width: 16px; height: 16px;">
+                                </td>
                                 <td>
                                     <div class="inv-emp-fio"><strong>{{ emp.fio }}</strong></div>
                                     <div class="inv-emp-sub">
@@ -193,6 +199,35 @@
 
     </div>
 </section>
+
+<!-- Плавающая панель массовых действий -->
+<div id="batchToolbar" class="inv-batch-bar" style="display: none;">
+    <div class="inv-batch-bar__inner">
+        <div class="inv-batch-bar__info">
+            Выбрано сотрудников: <strong id="selectedCount">0</strong>
+        </div>
+        <div class="inv-batch-bar__actions">
+            <button type="button" class="inv-batch-btn inv-batch-btn--mail" onclick="executeBatchAction('remind')">
+                ✉️ Отправить напоминания (<span id="eligibleRemindCount">0</span>)
+            </button>
+            <button type="button" class="inv-batch-btn inv-batch-btn--refresh" onclick="executeBatchAction('refresh')">
+                🔄 Обновить статусы
+            </button>
+            <button type="button" class="inv-batch-btn inv-batch-btn--delete" onclick="executeBatchAction('delete')">
+                🗑️ Удалить выбранных
+            </button>
+            <button type="button" class="inv-batch-btn inv-batch-btn--cancel" onclick="deselectAll()">
+                Снять выбор
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Скрытая форма для отправки массовых действий -->
+<form id="batchActionForm" method="post" action="/admin/inventory-control/batch-action" style="display: none;">
+    <input type="hidden" name="action" id="batchFormAction">
+    <input type="hidden" name="selected_ids" id="batchFormIds">
+</form>
 
 <!-- Модальное окно: Добавление сотрудников -->
 <div id="addModal" class="inv-modal" style="display: none;">
@@ -294,6 +329,7 @@ function applyFilters() {
             row.style.display = 'none';
         }
     });
+    updateBatchToolbar();
 }
 
 function setStatusFilter(status, btn) {
@@ -301,6 +337,99 @@ function setStatusFilter(status, btn) {
     document.querySelectorAll('.inv-filter-btn').forEach(b => b.classList.remove('inv-filter-btn--active'));
     btn.classList.add('inv-filter-btn--active');
     applyFilters();
+}
+
+function toggleSelectAll(masterCb) {
+    const checked = masterCb.checked;
+    const rows = document.querySelectorAll('#employeesTable tbody tr');
+    rows.forEach(row => {
+        if (row.style.display !== 'none') {
+            const cb = row.querySelector('.emp-checkbox');
+            if (cb) cb.checked = checked;
+        }
+    });
+    updateBatchToolbar();
+}
+
+function deselectAll() {
+    const master = document.getElementById('selectAllCheckbox');
+    if (master) master.checked = false;
+    document.querySelectorAll('.emp-checkbox').forEach(cb => cb.checked = false);
+    updateBatchToolbar();
+}
+
+function getSelectedCheckboxes() {
+    const selected = [];
+    document.querySelectorAll('#employeesTable tbody tr').forEach(row => {
+        const cb = row.querySelector('.emp-checkbox');
+        if (cb && cb.checked) {
+            selected.push(cb);
+        }
+    });
+    return selected;
+}
+
+function updateBatchToolbar() {
+    const selected = getSelectedCheckboxes();
+    const bar = document.getElementById('batchToolbar');
+    if (!bar) return;
+
+    if (selected.length === 0) {
+        bar.style.display = 'none';
+        return;
+    }
+
+    bar.style.display = 'block';
+    document.getElementById('selectedCount').textContent = selected.length;
+
+    // Считаем сколько из них ожидают напоминания (есть email, не завершили, техника > 0)
+    let eligibleCount = 0;
+    selected.forEach(cb => {
+        const email = cb.getAttribute('data-email');
+        const status = cb.getAttribute('data-status');
+        const total = parseInt(cb.getAttribute('data-total') || '0', 10);
+        if (email && status !== 'completed' && status !== 'no_assets' && total > 0) {
+            eligibleCount++;
+        }
+    });
+
+    document.getElementById('eligibleRemindCount').textContent = eligibleCount;
+}
+
+function executeBatchAction(actionName) {
+    const selected = getSelectedCheckboxes();
+    if (selected.length === 0) {
+        alert('Не выбрано ни одного сотрудника.');
+        return;
+    }
+
+    const ids = selected.map(cb => cb.value);
+
+    if (actionName === 'remind') {
+        const eligibleCount = parseInt(document.getElementById('eligibleRemindCount').textContent || '0', 10);
+        if (eligibleCount === 0) {
+            alert('Среди выбранных сотрудников нет тех, кому требуется отправить напоминание (все уже завершили инвентаризацию или не имеют техники/почты).');
+            return;
+        }
+        if (!confirm(`Отправить письмо-напоминание выбранным сотрудникам (${eligibleCount} чел.)?`)) {
+            return;
+        }
+        showLoadingOverlay('Отправка писем сотрудникам...');
+    } else if (actionName === 'refresh') {
+        if (!confirm(`Обновить статусы и список техники из A-Tracker для ${selected.length} выбранных сотрудников?`)) {
+            return;
+        }
+        showLoadingOverlay('Обновление данных из A-Tracker...');
+    } else if (actionName === 'delete') {
+        if (!confirm(`Вы действительно хотите удалить ${selected.length} сотрудников из списка контроля?`)) {
+            return;
+        }
+        showLoadingOverlay('Удаление сотрудников...');
+    }
+
+    document.getElementById('batchFormAction').value = actionName;
+    document.getElementById('batchFormIds').value = ids.join(',');
+    document.getElementById('batchActionForm').submit();
 }
 
 function openAddModal() {
