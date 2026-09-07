@@ -1,47 +1,90 @@
+import io
 from typing import Optional
 
 import cv2
 import numpy as np
+from PIL import Image, ImageOps
 
 
 def decode_qr_from_bytes(image_bytes: bytes) -> Optional[str]:
-    """Пытаемся вытащить текст из QR-кода на картинке."""
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    """
+    Распознавание QR-кода с фотографий любого разрешения и ориентации:
+    1. Автоповорот по EXIF (метаданные ориентации смартфонов iOS/Android).
+    2. Двойной детектор: QRCodeDetectorAruco (OpenCV 4.7+) + стандартный QRCodeDetector.
+    3. Мультимасштабирование (пирамида разрешений для четкого захвата как мелких, так и крупных наклеек).
+    4. Повороты на 0°, 90°, 180°, 270°.
+    5. Адаптивные фильтры контрастности (CLAHE, Otsu, Gaussian Adaptive Threshold).
+    """
+    if not image_bytes:
+        return None
+
+    # 1. Загрузка и нормализация ориентации EXIF через PIL
+    try:
+        pil_img = Image.open(io.BytesIO(image_bytes))
+        pil_img = ImageOps.exif_transpose(pil_img)
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+    except Exception:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
     if img is None:
         return None
-    detector = cv2.QRCodeDetector()
 
-    variants = []
+    # Инициализация детекторов
+    detectors = []
+    if hasattr(cv2, "QRCodeDetectorAruco"):
+        try:
+            detectors.append(cv2.QRCodeDetectorAruco())
+        except Exception:
+            pass
+    detectors.append(cv2.QRCodeDetector())
 
-    # Оригинал и градации серого
-    variants.append(img)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    variants.append(gray)
+    def _try_detect(frame) -> Optional[str]:
+        for det in detectors:
+            try:
+                data, _, _ = det.detectAndDecode(frame)
+                if data and data.strip():
+                    return data.strip()
+            except Exception:
+                continue
+        return None
+
+    # Быстрая проверка на оригинале
+    quick_res = _try_detect(img)
+    if quick_res:
+        return quick_res
 
     h, w = img.shape[:2]
+    max_dim = max(h, w)
 
-    # Масштабирование вниз для очень больших фото, чтобы уменьшить шум
-    if max(h, w) > 1600:
-        scale = 1600 / max(h, w)
-        small = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-        variants.append(small)
-        variants.append(cv2.cvtColor(small, cv2.COLOR_BGR2GRAY))
+    # Пирамида масштабов
+    scales = [img]
+    for target_dim in (2400, 1600, 1000, 700):
+        if max_dim > target_dim:
+            s = target_dim / max_dim
+            resized = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+            scales.append(resized)
 
-    # Лёгкое увеличение контраста и бинаризация — часто помогает для фото с телефона
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    gray_eq = clahe.apply(gray)
-    _, thresh = cv2.threshold(gray_eq, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    variants.append(gray_eq)
-    variants.append(thresh)
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
 
-    for im in variants:
-        try:
-            data, _, _ = detector.detectAndDecode(im)
-        except cv2.error:
-            continue
-        if data and data.strip():
-            return data.strip()
+    for base in scales:
+        gray = cv2.cvtColor(base, cv2.COLOR_BGR2GRAY) if len(base.shape) == 3 else base
+        gray_eq = clahe.apply(gray)
+        _, otsu = cv2.threshold(gray_eq, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        adapt = cv2.adaptiveThreshold(
+            gray_eq, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 5
+        )
+
+        variants = [base, gray, gray_eq, otsu, adapt]
+        for v in variants:
+            for rot in (0, 1, 2, 3):
+                test_frame = np.rot90(v, rot) if rot > 0 else v
+                res = _try_detect(test_frame)
+                if res:
+                    return res
+
     return None
 
 
