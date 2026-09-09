@@ -6579,19 +6579,22 @@ async def admin_inventory_control_remind(request: Request, emp_id: str):
     portal_url = (WEB_PUBLIC_BASE_URL or "https://myinvent.ovp.ru").rstrip("/")
 
     # Собираем список непроверенной техники
-    uncompleted_list = []
-    for a in rec.get("assets_snapshot") or []:
-        if not a.get("inventoried"):
-            uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
+    if total == 0:
+        assets_section = "В системе за вами на данный момент не числится закрепленной техники (0 ед.)."
+    else:
+        uncompleted_list = []
+        for a in rec.get("assets_snapshot") or []:
+            if not a.get("inventoried"):
+                uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
 
-    assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
+        assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
+        assets_section = f"Техника, ожидающая инвентаризации ({left} из {total} ед.):\n{assets_block}"
 
     body = f"""Здравствуйте, {fio}!
 
 Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.
 
-Техника, ожидающая инвентаризации ({left} из {total} ед.):
-{assets_block}
+{assets_section}
 
 Для проведения инвентаризации перейдите по ссылке:
 {portal_url}
@@ -6679,7 +6682,7 @@ async def admin_inventory_control_batch_action(
             to_email = (rec.get("email") or "").strip()
             st = rec.get("status")
             tot = int(rec.get("total_assets") or 0)
-            if not to_email or st == STATUS_COMPLETED or st == STATUS_NO_ASSETS or tot == 0:
+            if not to_email or st == STATUS_COMPLETED:
                 skip_count += 1
                 continue
 
@@ -6687,19 +6690,22 @@ async def admin_inventory_control_batch_action(
             inv = int(rec.get("inventoried_assets") or 0)
             left = tot - inv
 
-            uncompleted_list = []
-            for a in rec.get("assets_snapshot") or []:
-                if not a.get("inventoried"):
-                    uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
+            if tot == 0:
+                assets_section = "В системе за вами на данный момент не числится закрепленной техники (0 ед.)."
+            else:
+                uncompleted_list = []
+                for a in rec.get("assets_snapshot") or []:
+                    if not a.get("inventoried"):
+                        uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
 
-            assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
+                assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
+                assets_section = f"Техника, ожидающая инвентаризации ({left} из {tot} ед.):\n{assets_block}"
 
             body = f"""Здравствуйте, {fio}!
 
 Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.
 
-Техника, ожидающая инвентаризации ({left} из {tot} ед.):
-{assets_block}
+{assets_section}
 
 Для проведения инвентаризации перейдите по ссылке:
 {portal_url}
@@ -6734,7 +6740,7 @@ async def admin_inventory_control_batch_action(
 
         msg = f"Массовая рассылка завершена: успешно отправлено {sent_count} писем."
         if skip_count > 0:
-            msg += f" Пропущено (уже завершили или без техники): {skip_count}."
+            msg += f" Пропущено (уже завершили или без email): {skip_count}."
         if err_list:
             msg += f" Ошибок отправки: {len(err_list)}."
         request.session["flash_message"] = msg

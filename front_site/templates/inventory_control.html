@@ -387,13 +387,12 @@ function updateBatchToolbar() {
     bar.style.display = 'block';
     document.getElementById('selectedCount').textContent = selected.length;
 
-    // Считаем сколько из них ожидают напоминания (есть email, не завершили, техника > 0)
+    // Считаем сколько из них ожидают напоминания (есть email и инвентаризация не завершена)
     let eligibleCount = 0;
     selected.forEach(cb => {
         const email = cb.getAttribute('data-email');
         const status = cb.getAttribute('data-status');
-        const total = parseInt(cb.getAttribute('data-total') || '0', 10);
-        if (email && status !== 'completed' && status !== 'no_assets' && total > 0) {
+        if (email && status !== 'completed') {
             eligibleCount++;
         }
     });
@@ -413,7 +412,7 @@ function executeBatchAction(actionName) {
     if (actionName === 'remind') {
         const eligibleCount = parseInt(document.getElementById('eligibleRemindCount').textContent || '0', 10);
         if (eligibleCount === 0) {
-            alert('Среди выбранных сотрудников нет тех, кому требуется отправить напоминание (все уже завершили инвентаризацию или не имеют техники/почты).');
+            alert('Среди выбранных сотрудников нет тех, кому требуется отправить напоминание (все уже завершили инвентаризацию или не указан email).');
             return;
         }
         if (!confirm(`Отправить письмо-напоминание выбранным сотрудникам (${eligibleCount} чел.)?`)) {
