@@ -105,6 +105,7 @@ from .inventory_control import (
     METHOD_QR,
     METHOD_SELF_NO_QR,
     METHOD_ADMIN_MANUAL,
+    METHOD_ASSET_ADD,
     save_asset_confirmation,
     get_asset_confirmation,
     list_controlled_employees,
@@ -2087,6 +2088,8 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
                 "LUserId": user_id,
                 "sComment": merged_comment,
                 "SComment": merged_comment,
+                "bInventoried": True,
+                "BInventoried": True,
             }
             # Обновляем существующий актив строго полями из формы админа.
             if asset_name:
@@ -2171,6 +2174,8 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
                 "LCategoryId": category_id,
                 "sComment": comment,
                 "SComment": comment,
+                "bInventoried": True,
+                "BInventoried": True,
             }
             if location_id > 0:
                 create_payload.update(
@@ -2324,6 +2329,37 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
         except Exception as ex:
             upload_errors.append(f"{ph.get('name') or p.name}: {ex}")
 
+    # Сразу отмечаем инвентаризацию созданного/обновлённого актива в A-Tracker
+    invent_mark_warning = ""
+    if final_asset_id > 0:
+        try:
+            req_num_label = str(req.get("request_number") or req_id)
+            requester_fio = str(req.get("requester_fio") or "").strip() or "Сотрудник"
+            actor = str(req.get("resolved_by") or "").strip() or "администратор"
+            sd_num = str(req.get("sd_request_number") or "").strip()
+            mark_comment = (
+                f"Username=asset-add-approved (заявка {req_num_label}) by {actor} at "
+                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            await client.mark_inventory(
+                asset_id=final_asset_id,
+                fio=requester_fio,
+                tg_user_id=0,
+                tg_username=mark_comment,
+            )
+            first_photo = (req.get("photos") or [{}])[0].get("name") or ""
+            save_asset_confirmation(
+                asset_id=final_asset_id,
+                method=METHOD_ASSET_ADD,
+                email=req.get("requester_email") or "",
+                fio=requester_fio,
+                comment=f"Добавление техники по заявке {req_num_label}. SD: {sd_num or '—'}",
+                photo_filename=first_photo,
+            )
+        except Exception as ex:
+            logger.warning("Не удалось отметить инвентаризацию актива %s: %s", final_asset_id, ex)
+            invent_mark_warning = f"Актив обработан, но не удалось отметить инвентаризацию в A-Tracker: {ex}"
+
     patch = {
         "final_asset_id": final_asset_id,
         # Статусы заявки в A-Tracker для финализации не используем:
@@ -2343,6 +2379,8 @@ async def _finalize_asset_add_in_atracker(req: dict) -> tuple[dict | None, str]:
         warnings.append(category_patch_warning)
     if asset_name_patch_warning:
         warnings.append(asset_name_patch_warning)
+    if invent_mark_warning:
+        warnings.append(invent_mark_warning)
     if upload_errors:
         warnings.append("Часть фото не загрузилась: " + "; ".join(upload_errors[:3]))
     return updated_req, "; ".join(warnings)
@@ -5994,17 +6032,33 @@ async def admin_asset_add_approve(
     else:
         if already_approved and not has_final_asset:
             request.session["flash_message"] = (
-                "Заявка была подтверждена ранее, финализация в A-Tracker выполнена сейчас."
+                "Заявка была подтверждена ранее, финализация и отметка инвентаризации в A-Tracker выполнены сейчас."
             )
         else:
             if chosen_portfolio_id > 0:
                 request.session["flash_message"] = (
-                    "Заявка подтверждена. В A-Tracker обновлён существующий актив с таким серийным номером."
+                    "Заявка подтверждена. В A-Tracker обновлён существующий актив с таким серийным номером и отмечен как проинвентаризированный."
                 )
             else:
                 request.session["flash_message"] = (
-                    "Заявка на добавление техники подтверждена и актив создан в A-Tracker."
+                    "Заявка на добавление техники подтверждена: актив создан в A-Tracker и отмечен как проинвентаризированный."
                 )
+
+    # Если инициатор заявки есть в списке контроля инвентаризации — обновляем его статус
+    requester_email = (req.get("requester_email") or "").strip().lower()
+    if requester_email:
+        try:
+            ctrl_emp = get_controlled_employee_by_email(requester_email)
+            if ctrl_emp:
+                ctrl_client = _build_atracker_client()
+                await refresh_controlled_employee(
+                    ctrl_emp,
+                    ctrl_client,
+                    _is_asset_inventoried,
+                    _get_asset_inv_number,
+                )
+        except Exception as ex:
+            logger.debug("Не удалось обновить запись сотрудника в контроле инвентаризации: %s", ex)
 
     _notify_asset_add_approved(updated)
     _write_audit(
@@ -6543,13 +6597,15 @@ async def admin_inventory_control_remind(request: Request, emp_id: str):
 {portal_url}
 
 Что необходимо сделать (краткая инструкция):
-1. Подключитесь к корпоративному VPN (сервис работает только в контуре нашей корпоративной сети).
+1. Подключитесь к корпоративному VPN (сервис работает в контуре корпоративной сети).
 2. Перейдите по ссылке: {portal_url}
-3. Введите вашу корпоративную почту или логин и укажите полученный одноразовый код.
-4. В разделе «Мои активы» найдите вашу технику из списка выше.
-5. Нажмите кнопку «Инвентаризировать по фото» (или сфотографируйте наклейку с QR-кодом / шильдик устройства).
-6. Прикрепите чёткое фото оборудования и нажмите «Отправить».
-7. Убедитесь, что статус позиции сменился на зелёную отметку «Проведён».
+3. Введите корпоративную почту или логин и укажите полученный одноразовый код.
+4. В разделе «Мои активы» найдите вашу технику:
+   • Если на технике есть наклейка с QR-кодом — нажмите «Инвентаризировать по фото» и сфотографируйте QR-код.
+   • Если наклейки с QR-кодом нет или она повреждена — нажмите «Подтвердить без QR (фото)» и прикрепите фото шильдика / серийного номера устройства.
+5. Если у вас на руках есть рабочая техника, которой НЕТ в списке — нажмите кнопку «Добавить технику» внизу страницы и отправьте заявку с фото.
+6. Если в списке числится техника, которой у вас уже нет — нажмите «Сообщить о несоответствии».
+7. Убедитесь, что статус проверенной техники сменился на зелёную отметку «Проведён».
 
 В случае возникновения вопросов обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии 8-800-302-12-21.
 
@@ -6649,13 +6705,15 @@ async def admin_inventory_control_batch_action(
 {portal_url}
 
 Что необходимо сделать (краткая инструкция):
-1. Подключитесь к корпоративному VPN (сервис работает только в контуре нашей корпоративной сети).
+1. Подключитесь к корпоративному VPN (сервис работает в контуре корпоративной сети).
 2. Перейдите по ссылке: {portal_url}
-3. Введите вашу корпоративную почту или логин и укажите полученный одноразовый код.
-4. В разделе «Мои активы» найдите вашу технику из списка выше.
-5. Нажмите кнопку «Инвентаризировать по фото» (или сфотографируйте наклейку с QR-кодом / шильдик устройства).
-6. Прикрепите чёткое фото оборудования и нажмите «Отправить».
-7. Убедитесь, что статус позиции сменился на зелёную отметку «Проведён».
+3. Введите корпоративную почту или логин и укажите полученный одноразовый код.
+4. В разделе «Мои активы» найдите вашу технику:
+   • Если на технике есть наклейка с QR-кодом — нажмите «Инвентаризировать по фото» и сфотографируйте QR-код.
+   • Если наклейки с QR-кодом нет или она повреждена — нажмите «Подтвердить без QR (фото)» и прикрепите фото шильдика / серийного номера устройства.
+5. Если у вас на руках есть рабочая техника, которой НЕТ в списке — нажмите кнопку «Добавить технику» внизу страницы и отправьте заявку с фото.
+6. Если в списке числится техника, которой у вас уже нет — нажмите «Сообщить о несоответствии».
+7. Убедитесь, что статус проверенной техники сменился на зелёную отметку «Проведён».
 
 В случае возникновения вопросов обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии 8-800-302-12-21.
 

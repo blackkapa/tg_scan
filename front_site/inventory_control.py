@@ -33,12 +33,14 @@ STATUS_LABELS: dict[str, str] = {
 METHOD_QR = "qr"
 METHOD_SELF_NO_QR = "self_no_qr"
 METHOD_ADMIN_MANUAL = "admin_manual"
+METHOD_ASSET_ADD = "asset_add"
 METHOD_NONE = "none"
 
 METHOD_LABELS: dict[str, str] = {
     METHOD_QR: "По QR-коду",
     METHOD_SELF_NO_QR: "Без QR (фото шильдика)",
     METHOD_ADMIN_MANUAL: "Администратором",
+    METHOD_ASSET_ADD: "Заявка на добавление",
     METHOD_NONE: "Не проведён",
 }
 
@@ -225,12 +227,14 @@ def compute_inventory_summary(
                 s_comm = str(a.get("sComment") or "") + str(a.get("sInventUser") or "")
                 if "self-confirm-no-qr" in s_comm or "manual-no-qr" in s_comm:
                     method = METHOD_SELF_NO_QR
+                elif "asset-add" in s_comm:
+                    method = METHOD_ASSET_ADD
                 elif "manual-admin" in s_comm or "manual-web-invent" in s_comm:
                     method = METHOD_ADMIN_MANUAL
                 else:
                     method = METHOD_QR
 
-            if method == METHOD_SELF_NO_QR:
+            if method in (METHOD_SELF_NO_QR, METHOD_ASSET_ADD):
                 self_no_qr_count += 1
             elif method == METHOD_QR:
                 qr_count += 1
@@ -356,6 +360,8 @@ def generate_inventory_control_csv() -> bytes:
             if a.get("inventoried"):
                 if method == METHOD_SELF_NO_QR:
                     mark = "[✓ Без QR]"
+                elif method == METHOD_ASSET_ADD:
+                    mark = "[✓ Заявка]"
                 elif method == METHOD_ADMIN_MANUAL:
                     mark = "[✓ Админ]"
                 else:
