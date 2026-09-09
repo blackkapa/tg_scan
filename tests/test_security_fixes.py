@@ -20,6 +20,7 @@ from front_site.app import (
     _path_is_under_dir,
     _check_settings_secret,
     _check_auth_rate_limit,
+    _parse_audit_details,
     app,
 )
 from starlette.testclient import TestClient
@@ -99,6 +100,13 @@ class TestSecurityHardening(unittest.TestCase):
 
         self.assertTrue(_path_is_under_dir(safe_child, root))
         self.assertFalse(_path_is_under_dir(evil_traversal, root))
+
+    def test_audit_details_are_human_readable(self):
+        details = _parse_audit_details("asset_id=42; photos=3\towner=Иванов Иван")
+        self.assertEqual(
+            details,
+            [("Актив", "42"), ("Фотографий", "3"), ("Владелец", "Иванов Иван")],
+        )
 
     def test_csrf_middleware(self):
         """Проверка блокировки внешних CSRF POST запросов."""

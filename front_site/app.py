@@ -2477,6 +2477,9 @@ def _save_settings_config(
     atracker_base_url: str,
     atracker_username: str,
     atracker_password: str,
+    atracker_ca_bundle: str,
+    atracker_connect_via: str,
+    atracker_service_ids: dict[str, str],
     email_domain_allowed: str,
     email_admin_emails: str,
     smtp_host: str,
@@ -2491,6 +2494,7 @@ def _save_settings_config(
     web_public_base_url: str = "",
     web_asset_add_button_enabled: bool = True,
     web_transfer_enabled: bool = True,
+    web_discrepancy_enabled: bool = True,
     web_discrepancy_button_enabled: bool = True,
     settings_secret: str = "",
     atracker_verify_ssl: bool = False,
@@ -2502,6 +2506,17 @@ def _save_settings_config(
     cfg.set("atracker", "username", (atracker_username or "").strip())
     cfg.set("atracker", "password", (atracker_password or "").strip())
     cfg.set("atracker", "verify_ssl", "true" if atracker_verify_ssl else "false")
+    cfg.set("atracker", "ca_bundle", (atracker_ca_bundle or "").strip())
+    cfg.set("atracker", "connect_via", (atracker_connect_via or "").strip())
+    for key, value in atracker_service_ids.items():
+        clean_value = (value or "0").strip()
+        try:
+            service_id = int(clean_value)
+        except ValueError as exc:
+            raise ValueError(f"ID сервиса «{key}» должен быть целым числом.") from exc
+        if service_id < 0:
+            raise ValueError(f"ID сервиса «{key}» не может быть отрицательным.")
+        cfg.set("atracker", key, str(service_id))
 
     _ensure_section(cfg, "email")
     if email_domain_allowed:
@@ -2523,6 +2538,7 @@ def _save_settings_config(
     cfg.set("web", "public_base_url", (web_public_base_url or "").strip())
     cfg.set("web", "asset_add_button_enabled", "true" if web_asset_add_button_enabled else "false")
     cfg.set("web", "transfer_enabled", "true" if web_transfer_enabled else "false")
+    cfg.set("web", "discrepancy_enabled", "true" if web_discrepancy_enabled else "false")
     cfg.set(
         "web",
         "discrepancy_button_enabled",
@@ -2690,6 +2706,7 @@ AUDIT_ACTION_MAP: dict[str, tuple[str, str, str]] = {
     "auth_cooldown": ("Кулдаун отправки", "security", "warning"),
     "inventory_mark": ("Инвентаризация (QR)", "inventory", "success"),
     "inventory_no_qr": ("Инвентаризация (без QR)", "inventory", "success"),
+    "inventory_self_confirm_no_qr": ("Подтверждение без QR", "inventory", "success"),
     "inventory_forbidden": ("Блокировка доступа (IDOR)", "security", "danger"),
     "view_assets": ("Просмотр активов", "inventory", "info"),
     "transfer_start": ("Начало перемещения", "requests", "info"),
@@ -2708,11 +2725,65 @@ AUDIT_ACTION_MAP: dict[str, tuple[str, str, str]] = {
     "asset_add_reject": ("Отклонение добавления", "requests", "warning"),
     "discrepancy_create": ("Заявка о несоответствии", "requests", "info"),
     "discrepancy_update": ("Статус несоответствия", "requests", "info"),
+    "discrepancy_in_review": ("Несоответствие взято в работу", "requests", "info"),
+    "discrepancy_closed": ("Несоответствие закрыто", "requests", "success"),
+    "discrepancy_rejected": ("Несоответствие отклонено", "requests", "warning"),
+    "transfer_sender_signed": ("Подпись отправителя", "requests", "info"),
+    "transfer_receiver_signed": ("Подпись получателя", "requests", "info"),
+    "inventory_control_add": ("Сотрудник добавлен в контроль", "inventory", "info"),
+    "inventory_control_batch_add": ("Сотрудники добавлены в контроль", "inventory", "info"),
+    "inventory_control_delete": ("Сотрудник удалён из контроля", "inventory", "warning"),
+    "inventory_control_remind": ("Напоминание отправлено", "inventory", "success"),
+    "inventory_control_batch_remind": ("Напоминания отправлены", "inventory", "success"),
+    "inventory_control_batch_delete": ("Сотрудники удалены из контроля", "inventory", "warning"),
     "settings_open": ("Просмотр настроек", "system", "info"),
     "settings_save": ("Сохранение настроек", "system", "success"),
     "settings_save_error": ("Ошибка сохранения", "security", "danger"),
     "logout": ("Выход из системы", "auth", "info"),
 }
+
+
+AUDIT_DETAIL_LABELS = {
+    "asset_id": "Актив",
+    "request_id": "Заявка",
+    "transfer_id": "Перемещение",
+    "user_fio": "Сотрудник",
+    "fio": "Сотрудник",
+    "email": "Email",
+    "to": "Получатель",
+    "owner": "Владелец",
+    "photos": "Фотографий",
+    "assets": "Активы",
+    "count": "Количество",
+    "added": "Добавлено",
+    "skipped": "Пропущено",
+    "errors": "Ошибок",
+    "total": "Всего активов",
+    "operation": "Операция",
+    "attachment_failures": "Ошибок вложений",
+    "restarted": "Перезапуск сервиса",
+}
+
+
+def _parse_audit_details(details: str) -> list[tuple[str, str]]:
+    """Преобразует старое строковое поле details в читаемые пары ключ/значение."""
+    result: list[tuple[str, str]] = []
+    normalized = (details or "").replace("\t", ";")
+    for part in normalized.split(";"):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            key, value = part.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            label = AUDIT_DETAIL_LABELS.get(key, key.replace("_", " ").capitalize())
+            if value.lower() in ("true", "false"):
+                value = "успешен" if value.lower() == "true" else "не выполнен"
+            result.append((label, value or "—"))
+        else:
+            result.append(("Дополнительно", part))
+    return result
 
 
 def _find_audit_log_files() -> list[Path]:
@@ -2759,6 +2830,22 @@ async def settings_page(request: Request) -> HTMLResponse:
     atracker_base_url = cfg.get("atracker", "base_url", fallback="")
     atracker_username = cfg.get("atracker", "username", fallback="")
     atracker_password = cfg.get("atracker", "password", fallback="")
+    atracker_ca_bundle = cfg.get("atracker", "ca_bundle", fallback="")
+    atracker_connect_via = cfg.get("atracker", "connect_via", fallback="")
+    atracker_service_ids = {
+        key: cfg.get("atracker", key, fallback="0")
+        for key in (
+            "transfer_posting_service_id",
+            "locations_list_service_id",
+            "categories_list_service_id",
+            "asset_add_request_create_service_id",
+            "asset_add_request_get_service_id",
+            "portfolio_create_service_id",
+            "portfolio_update_service_id",
+            "request_attach_service_id",
+            "asset_find_by_serial_service_id",
+        )
+    }
     atracker_verify_ssl = False
     if cfg.has_section("atracker"):
         _vssl = (cfg.get("atracker", "verify_ssl", fallback="false") or "false").strip().lower()
@@ -2781,12 +2868,15 @@ async def settings_page(request: Request) -> HTMLResponse:
     web_asset_add_button_enabled = True
     web_transfer_enabled = True
     web_discrepancy_button_enabled = True
+    web_discrepancy_enabled = True
     if cfg.has_section("web"):
         web_public_base_url = cfg.get("web", "public_base_url", fallback="")
         _aae = (cfg.get("web", "asset_add_button_enabled", fallback="true") or "true").strip().lower()
         web_asset_add_button_enabled = _aae not in ("0", "false", "no", "off")
         _te = (cfg.get("web", "transfer_enabled", fallback="true") or "true").strip().lower()
         web_transfer_enabled = _te not in ("0", "false", "no", "off")
+        _de = (cfg.get("web", "discrepancy_enabled", fallback="true") or "true").strip().lower()
+        web_discrepancy_enabled = _de not in ("0", "false", "no", "off")
         _dbe = (
             cfg.get("web", "discrepancy_button_enabled", fallback="true") or "true"
         ).strip().lower()
@@ -2866,6 +2956,7 @@ async def settings_page(request: Request) -> HTMLResponse:
                 "category": category,
                 "level": level,
                 "details": details,
+                "detail_items": _parse_audit_details(details),
             }
         )
         if len(audit_rows) >= limit:
@@ -2881,6 +2972,9 @@ async def settings_page(request: Request) -> HTMLResponse:
             "atracker_password": "",
             "has_atracker_password": bool(atracker_password),
             "atracker_verify_ssl": atracker_verify_ssl,
+            "atracker_ca_bundle": atracker_ca_bundle,
+            "atracker_connect_via": atracker_connect_via,
+            **{f"atracker_{key}": value for key, value in atracker_service_ids.items()},
             "email_domain_allowed": email_domain_allowed,
             "email_admin_emails": email_admin_emails,
             "email_bypass_code_emails": email_bypass_code_emails,
@@ -2889,6 +2983,7 @@ async def settings_page(request: Request) -> HTMLResponse:
             "web_public_base_url": web_public_base_url,
             "web_asset_add_button_enabled": web_asset_add_button_enabled,
             "web_transfer_enabled": web_transfer_enabled,
+            "web_discrepancy_enabled": web_discrepancy_enabled,
             "web_discrepancy_button_enabled": web_discrepancy_button_enabled,
             "smtp_host": smtp_host,
             "smtp_port": smtp_port,
@@ -2922,6 +3017,17 @@ async def settings_save(
     atracker_username: str = Form(""),
     atracker_password: str = Form(""),
     atracker_verify_ssl: str = Form("false"),
+    atracker_ca_bundle: str = Form(""),
+    atracker_connect_via: str = Form(""),
+    atracker_transfer_posting_service_id: str = Form("0"),
+    atracker_locations_list_service_id: str = Form("0"),
+    atracker_categories_list_service_id: str = Form("0"),
+    atracker_asset_add_request_create_service_id: str = Form("0"),
+    atracker_asset_add_request_get_service_id: str = Form("0"),
+    atracker_portfolio_create_service_id: str = Form("0"),
+    atracker_portfolio_update_service_id: str = Form("0"),
+    atracker_request_attach_service_id: str = Form("0"),
+    atracker_asset_find_by_serial_service_id: str = Form("0"),
     email_domain_allowed: str = Form(""),
     email_admin_emails: str = Form(""),
     smtp_host: str = Form(""),
@@ -2936,6 +3042,7 @@ async def settings_save(
     web_public_base_url: str = Form(""),
     web_asset_add_button_enabled: str = Form("0"),
     web_transfer_enabled: str = Form("0"),
+    web_discrepancy_enabled: str = Form("0"),
     web_discrepancy_button_enabled: str = Form("0"),
     settings_secret: str = Form(""),
 ):
@@ -2961,6 +3068,19 @@ async def settings_save(
             atracker_username=atracker_username,
             atracker_password=final_atracker_password,
             atracker_verify_ssl=clean_atr_ssl,
+            atracker_ca_bundle=atracker_ca_bundle,
+            atracker_connect_via=atracker_connect_via,
+            atracker_service_ids={
+                "transfer_posting_service_id": atracker_transfer_posting_service_id,
+                "locations_list_service_id": atracker_locations_list_service_id,
+                "categories_list_service_id": atracker_categories_list_service_id,
+                "asset_add_request_create_service_id": atracker_asset_add_request_create_service_id,
+                "asset_add_request_get_service_id": atracker_asset_add_request_get_service_id,
+                "portfolio_create_service_id": atracker_portfolio_create_service_id,
+                "portfolio_update_service_id": atracker_portfolio_update_service_id,
+                "request_attach_service_id": atracker_request_attach_service_id,
+                "asset_find_by_serial_service_id": atracker_asset_find_by_serial_service_id,
+            },
             email_domain_allowed=email_domain_allowed,
             email_admin_emails=email_admin_emails,
             smtp_host=smtp_host,
@@ -2975,6 +3095,9 @@ async def settings_save(
             web_public_base_url=web_public_base_url,
             web_asset_add_button_enabled=(str(web_asset_add_button_enabled).strip() in ("1", "true", "on", "yes")),
             web_transfer_enabled=(str(web_transfer_enabled).strip() in ("1", "true", "on", "yes")),
+            web_discrepancy_enabled=(
+                str(web_discrepancy_enabled).strip() in ("1", "true", "on", "yes")
+            ),
             web_discrepancy_button_enabled=(
                 str(web_discrepancy_button_enabled).strip() in ("1", "true", "on", "yes")
             ),
