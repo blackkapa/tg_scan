@@ -349,6 +349,43 @@
                     </div>
                 </div>
 
+                <!-- Reminder Template Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">Шаблон напоминаний об инвентаризации</h2>
+                            <p class="settings-section-card__desc">Текст и тема сообщений, отправляемых сотрудникам на почту и в Яндекс Мессенджер</p>
+                        </div>
+                    </div>
+                    <div class="settings-grid-2col">
+                        <label class="settings-field" style="grid-column: 1 / -1;">
+                            <span>Тема письма (Subject)</span>
+                            <input type="text" name="reminder_subject" class="auth-form__input"
+                                   placeholder="Напоминание: необходимо пройти инвентаризацию техники"
+                                   value="{{ config.reminder_subject }}">
+                        </label>
+                        <label class="settings-field" style="grid-column: 1 / -1;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                                <span>Текст напоминания (поддерживает Markdown: <code>**жирный шрифт**</code>)</span>
+                                <button type="button" id="resetReminderTemplateBtn" class="assets-list__link" style="background: none; border: none; cursor: pointer; font-size: 0.82rem; color: var(--color-primary, #0284c7); padding: 0;">
+                                    Восстановить исходный шаблон
+                                </button>
+                            </div>
+                            <textarea name="reminder_template" id="reminderTemplateTextarea" class="auth-form__input" rows="16"
+                                      style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.88rem; line-height: 1.45; white-space: pre-wrap;"
+                                      placeholder="Текст шаблона...">{{ config.reminder_template }}</textarea>
+                            <div style="margin-top: 0.5rem; padding: 0.75rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.83rem; color: #475569; line-height: 1.5;">
+                                <strong style="color: #1e293b;">Доступные переменные:</strong><br>
+                                • <code>{fio}</code> — ФИО сотрудника (или «Сотрудник»)<br>
+                                • <code>{portal_url}</code> — ссылка на веб-портал (берётся из поля «Публичный URL сайта» выше)<br>
+                                • <code>{assets_section}</code> — блок со списком техники к проверке (или сообщение об отсутствии закрепленной техники)<br>
+                                • <code>{total}</code>, <code>{inventoried}</code>, <code>{left}</code> — количество единиц техники (всего / проверено / осталось)<br>
+                                • <code>**текст**</code> — выделение <b>жирным шрифтом</b> (отображается жирным в письмах и в Яндекс Мессенджере).
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
             </div>
                     <div class="settings-save-footer" id="settingsSaveFooter">
                         <span class="auth-form__hint" id="settingsSaveHint">Изменений нет</span>
@@ -592,6 +629,43 @@ document.addEventListener('DOMContentLoaded', function() {
             filterAuditRows();
         });
     });
+
+    const resetReminderBtn = document.getElementById('resetReminderTemplateBtn');
+    const reminderTextarea = document.getElementById('reminderTemplateTextarea');
+    if (resetReminderBtn && reminderTextarea) {
+        const defaultReminderTemplate = `Здравствуйте, {fio}!
+
+**Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.**
+
+{assets_section}
+
+**Для проведения инвентаризации перейдите по ссылке:**
+{portal_url}
+
+Что необходимо сделать (краткая инструкция):
+1. Подключитесь к корпоративному VPN (сервис работает в контуре корпоративной сети).
+2. Перейдите по ссылке: {portal_url}
+3. Введите корпоративную почту или логин и укажите полученный одноразовый код.
+4. В разделе «Мои активы» найдите вашу технику:
+   • Если на технике есть наклейка с QR-кодом — нажмите «Инвентаризировать по фото» и сфотографируйте QR-код.
+   • Если наклейки с QR-кодом нет или она повреждена — нажмите «Подтвердить без QR (фото)» и прикрепите фото шильдика / серийного номера устройства.
+5. Если у вас на руках есть рабочая техника, которой НЕТ в списке — нажмите кнопку «Добавить технику» внизу страницы и отправьте заявку с фото.
+6. Если в списке числится техника, которой у вас уже нет — нажмите «Сообщить о несоответствии».
+7. Убедитесь, что статус проверенной техники сменился на зелёную отметку «Проведён».
+
+В случае возникновения вопросов обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии 8-800-302-12-21.
+
+---
+Служба технической поддержки ООО "АСГ"`;
+
+        resetReminderBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (confirm('Сбросить текст шаблона к исходному стандартному?')) {
+                reminderTextarea.value = defaultReminderTemplate;
+                reminderTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        });
+    }
 
     const settingsForm = document.getElementById('settingsForm');
     const saveButton = document.getElementById('settingsSaveButton');

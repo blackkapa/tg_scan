@@ -237,6 +237,83 @@ def reload_web_flags_from_disk() -> None:
     global YANDEX_MESSENGER_ENABLED, YANDEX_MESSENGER_TOKEN
     YANDEX_MESSENGER_ENABLED = _getbool("yandex_messenger", "enabled", False)
     YANDEX_MESSENGER_TOKEN = _get("yandex_messenger", "token", "")
+    # reminder
+    global REMINDER_SUBJECT, REMINDER_TEMPLATE
+    REMINDER_SUBJECT = get_reminder_subject()
+    REMINDER_TEMPLATE = get_reminder_template()
+
+
+DEFAULT_REMINDER_SUBJECT = "Напоминание: необходимо пройти инвентаризацию техники"
+DEFAULT_REMINDER_TEMPLATE = """Здравствуйте, {fio}!
+
+**Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.**
+
+{assets_section}
+
+**Для проведения инвентаризации перейдите по ссылке:**
+{portal_url}
+
+Что необходимо сделать (краткая инструкция):
+1. Подключитесь к корпоративному VPN (сервис работает в контуре корпоративной сети).
+2. Перейдите по ссылке: {portal_url}
+3. Введите корпоративную почту или логин и укажите полученный одноразовый код.
+4. В разделе «Мои активы» найдите вашу технику:
+   • Если на технике есть наклейка с QR-кодом — нажмите «Инвентаризировать по фото» и сфотографируйте QR-код.
+   • Если наклейки с QR-кодом нет или она повреждена — нажмите «Подтвердить без QR (фото)» и прикрепите фото шильдика / серийного номера устройства.
+5. Если у вас на руках есть рабочая техника, которой НЕТ в списке — нажмите кнопку «Добавить технику» внизу страницы и отправьте заявку с фото.
+6. Если в списке числится техника, которой у вас уже нет — нажмите «Сообщить о несоответствии».
+7. Убедитесь, что статус проверенной техники сменился на зелёную отметку «Проведён».
+
+В случае возникновения вопросов обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии 8-800-302-12-21.
+
+---
+Служба технической поддержки ООО "АСГ"
+"""
+
+
+def get_reminder_subject() -> str:
+    """Тема письма с напоминанием об инвентаризации."""
+    subj = _get("reminder", "subject", "")
+    return subj or DEFAULT_REMINDER_SUBJECT
+
+
+def get_reminder_template() -> str:
+    """Текст шаблона напоминания об инвентаризации."""
+    tpl_path = os.path.join(_config_dir, "data", "reminder_template.txt")
+    try:
+        if os.path.isfile(tpl_path):
+            with open(tpl_path, "r", encoding="utf-8") as f:
+                content = f.read().strip()
+                if content:
+                    return content
+    except Exception:
+        pass
+    ini_tpl = _get("reminder", "template", "")
+    if ini_tpl:
+        return ini_tpl
+    return DEFAULT_REMINDER_TEMPLATE.strip()
+
+
+def save_reminder_template(template_text: str, subject: str = "") -> None:
+    """Сохранение шаблона в data/reminder_template.txt и темы в config.ini."""
+    tpl_path = os.path.join(_config_dir, "data", "reminder_template.txt")
+    os.makedirs(os.path.dirname(tpl_path), exist_ok=True)
+    with open(tpl_path, "w", encoding="utf-8") as f:
+        f.write((template_text or "").strip() + "\n")
+
+    if subject is not None:
+        cfg = ConfigParser()
+        if os.path.isfile(_CONFIG_PATH):
+            cfg.read(_CONFIG_PATH, encoding="utf-8")
+        if not cfg.has_section("reminder"):
+            cfg.add_section("reminder")
+        cfg.set("reminder", "subject", (subject or DEFAULT_REMINDER_SUBJECT).strip())
+        with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+            cfg.write(f)
+
+
+REMINDER_SUBJECT = get_reminder_subject()
+REMINDER_TEMPLATE = get_reminder_template()
 
 
 

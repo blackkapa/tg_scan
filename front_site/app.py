@@ -2541,6 +2541,8 @@ def _save_settings_config(
     atracker_verify_ssl: bool = False,
     yandex_messenger_enabled: bool = False,
     yandex_messenger_token: str = "",
+    reminder_subject: str = "",
+    reminder_template: str = "",
 ) -> None:
     cfg = _load_settings_config()
 
@@ -2609,8 +2611,18 @@ def _save_settings_config(
     if yandex_messenger_token is not None:
         cfg.set("yandex_messenger", "token", yandex_messenger_token.strip())
 
+    if reminder_subject is not None:
+        _ensure_section(cfg, "reminder")
+        cfg.set("reminder", "subject", reminder_subject.strip())
+
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         cfg.write(f)
+
+    if reminder_template is not None or reminder_subject is not None:
+        _config_runtime.save_reminder_template(
+            template_text=reminder_template or "",
+            subject=reminder_subject or "",
+        )
 
 
 def _systemctl_bin() -> str:
@@ -3050,6 +3062,8 @@ async def settings_page(request: Request) -> HTMLResponse:
             "yandex_messenger_enabled": yandex_messenger_enabled,
             "yandex_messenger_token": "",
             "has_yandex_messenger_token": bool(yandex_messenger_token),
+            "reminder_subject": _config_runtime.get_reminder_subject(),
+            "reminder_template": _config_runtime.get_reminder_template(),
             "has_settings_secret": bool(cfg.get("web", "settings_secret", fallback="") if cfg.has_section("web") else False),
         },
         "audit_rows": audit_rows,
@@ -3058,13 +3072,15 @@ async def settings_page(request: Request) -> HTMLResponse:
 
 
 @app.post("/settings", response_class=HTMLResponse)
-async def settings_unlock(request: Request, secret: str = Form(...)):
-    """Проверка секрета для доступа к настройкам."""
-    if not _check_settings_secret(secret or ""):
-        request.session["flash_message"] = "Доступ запрещён."
+async def settings_unlock(
+    request: Request,
+    secret: str = Form(""),
+) -> Response:
+    """Проверка секрета для страницы /settings."""
+    if _check_settings_secret(secret):
+        request.session["settings_ok"] = True
         return RedirectResponse(url="/settings", status_code=302)
-
-    request.session["settings_ok"] = True
+    request.session["flash_message"] = "Неверный секретный пароль."
     return RedirectResponse(url="/settings", status_code=302)
 
 
@@ -3104,6 +3120,8 @@ async def settings_save(
     web_discrepancy_button_enabled: str = Form("0"),
     yandex_messenger_enabled: str = Form("0"),
     yandex_messenger_token: str = Form(""),
+    reminder_subject: str = Form(""),
+    reminder_template: str = Form(""),
     settings_secret: str = Form(""),
 ):
     """Сохранение настроек в config.ini и попытка перезапуска сервиса."""
@@ -3170,6 +3188,8 @@ async def settings_save(
                 str(yandex_messenger_enabled).strip() in ("1", "true", "on", "yes")
             ),
             yandex_messenger_token=final_ym_token,
+            reminder_subject=reminder_subject.strip(),
+            reminder_template=reminder_template.strip(),
         )
         reload_web_flags_from_disk()
         globals()["EMAIL_DOMAIN_ALLOWED"] = _config_runtime.EMAIL_DOMAIN_ALLOWED
@@ -6586,6 +6606,70 @@ async def admin_inventory_control_delete(request: Request, emp_id: str):
     return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
 
+def _reminder_text_to_html(text: str) -> str:
+    """Преобразует текст напоминания (с **жирным**, ссылками и переносами) в красивое HTML-письмо."""
+    import html
+    escaped = html.escape(text or "")
+
+    # **жирный текст** -> <b>жирный текст</b>
+    formatted = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+
+    # URL ссылки -> <a href="...">...</a>
+    url_pattern = re.compile(r"(https?://[^\s<>\"]+)")
+    formatted = url_pattern.sub(r'<a href="\1" style="color: #0284c7; font-weight: 600; text-decoration: underline;" target="_blank" rel="noopener">\1</a>', formatted)
+
+    # Email адреса -> <a href="mailto:...">...</a>
+    mail_pattern = re.compile(r'(?<!href="mailto:)(?<!href=")(?<!">)\b([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b')
+    formatted = mail_pattern.sub(r'<a href="mailto:\1" style="color: #0284c7; text-decoration: underline;">\1</a>', formatted)
+
+    # Переносы строк
+    formatted = formatted.replace("\r\n", "\n").replace("\n", "<br>\n")
+
+    return f"""<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #1e293b; max-width: 680px; padding: 12px 0;">
+{formatted}
+</div>"""
+
+
+def _build_reminder_message(rec: dict, portal_url: str) -> tuple[str, str, str]:
+    """
+    Формирует тему, plain text (и для Yandex Messenger) и HTML (для email) напоминания.
+    Возвращает (subject, text_body, html_body).
+    """
+    fio = rec.get("fio") or "Сотрудник"
+    total = int(rec.get("total_assets") or 0)
+    inv = int(rec.get("inventoried_assets") or 0)
+    left = max(0, total - inv)
+
+    if total == 0:
+        assets_section = "В системе за вами на данный момент не числится закрепленной техники (0 ед.)."
+    else:
+        uncompleted_list = []
+        for a in rec.get("assets_snapshot") or []:
+            if not a.get("inventoried"):
+                uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
+        assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
+        assets_section = f"Техника, ожидающая инвентаризации ({left} из {total} ед.):\n{assets_block}"
+
+    subject = _config_runtime.get_reminder_subject()
+    template = _config_runtime.get_reminder_template()
+
+    replacements = {
+        "{fio}": fio,
+        "{portal_url}": portal_url,
+        "{assets_section}": assets_section,
+        "{total}": str(total),
+        "{inventoried}": str(inv),
+        "{left}": str(left),
+    }
+
+    text_body = template
+    for key, val in replacements.items():
+        text_body = text_body.replace(key, val)
+
+    html_body = _reminder_text_to_html(text_body)
+    return subject, text_body, html_body
+
+
 @app.post("/admin/inventory-control/{emp_id}/remind")
 async def admin_inventory_control_remind(request: Request, emp_id: str):
     """Отправка письма-напоминания о необходимости пройти инвентаризацию."""
@@ -6603,53 +6687,12 @@ async def admin_inventory_control_remind(request: Request, emp_id: str):
         request.session["flash_message"] = "У сотрудника не указан email для отправки."
         return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
-    fio = rec.get("fio") or "Сотрудник"
-    total = int(rec.get("total_assets") or 0)
-    inv = int(rec.get("inventoried_assets") or 0)
-    left = total - inv
-
     portal_url = (WEB_PUBLIC_BASE_URL or "https://myinvent.ovp.ru").rstrip("/")
-
-    # Собираем список непроверенной техники
-    if total == 0:
-        assets_section = "В системе за вами на данный момент не числится закрепленной техники (0 ед.)."
-    else:
-        uncompleted_list = []
-        for a in rec.get("assets_snapshot") or []:
-            if not a.get("inventoried"):
-                uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
-
-        assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
-        assets_section = f"Техника, ожидающая инвентаризации ({left} из {total} ед.):\n{assets_block}"
-
-    body = f"""Здравствуйте, {fio}!
-
-Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.
-
-{assets_section}
-
-Для проведения инвентаризации перейдите по ссылке:
-{portal_url}
-
-Что необходимо сделать (краткая инструкция):
-1. Подключитесь к корпоративному VPN (сервис работает в контуре корпоративной сети).
-2. Перейдите по ссылке: {portal_url}
-3. Введите корпоративную почту или логин и укажите полученный одноразовый код.
-4. В разделе «Мои активы» найдите вашу технику:
-   • Если на технике есть наклейка с QR-кодом — нажмите «Инвентаризировать по фото» и сфотографируйте QR-код.
-   • Если наклейки с QR-кодом нет или она повреждена — нажмите «Подтвердить без QR (фото)» и прикрепите фото шильдика / серийного номера устройства.
-5. Если у вас на руках есть рабочая техника, которой НЕТ в списке — нажмите кнопку «Добавить технику» внизу страницы и отправьте заявку с фото.
-6. Если в списке числится техника, которой у вас уже нет — нажмите «Сообщить о несоответствии».
-7. Убедитесь, что статус проверенной техники сменился на зелёную отметку «Проведён».
-
-В случае возникновения вопросов обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии 8-800-302-12-21.
-
----
-Служба технической поддержки ООО "АСГ"
-"""
+    fio = rec.get("fio") or "Сотрудник"
+    subj, body, html_body = _build_reminder_message(rec, portal_url)
 
     try:
-        ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
+        ok, err = send_plain_text_email([to_email], subj, body, html_body=html_body)
         ym_ok = False
         ym_err = ""
         if YANDEX_MESSENGER_ENABLED and YANDEX_MESSENGER_TOKEN and to_email:
@@ -6746,48 +6789,9 @@ async def admin_inventory_control_batch_action(
                 skip_count += 1
                 continue
 
-            fio = rec.get("fio") or "Сотрудник"
-            inv = int(rec.get("inventoried_assets") or 0)
-            left = tot - inv
-
-            if tot == 0:
-                assets_section = "В системе за вами на данный момент не числится закрепленной техники (0 ед.)."
-            else:
-                uncompleted_list = []
-                for a in rec.get("assets_snapshot") or []:
-                    if not a.get("inventoried"):
-                        uncompleted_list.append(f"  • {a.get('name')} (Инв. №: {a.get('invent', '—')}, Сер. №: {a.get('serial', '—')})")
-
-                assets_block = "\n".join(uncompleted_list) if uncompleted_list else "  (список в системе)"
-                assets_section = f"Техника, ожидающая инвентаризации ({left} из {tot} ед.):\n{assets_block}"
-
-            body = f"""Здравствуйте, {fio}!
-
-Пожалуйста, проведите инвентаризацию закрепленной за вами рабочей техники.
-
-{assets_section}
-
-Для проведения инвентаризации перейдите по ссылке:
-{portal_url}
-
-Что необходимо сделать (краткая инструкция):
-1. Подключитесь к корпоративному VPN (сервис работает в контуре корпоративной сети).
-2. Перейдите по ссылке: {portal_url}
-3. Введите корпоративную почту или логин и укажите полученный одноразовый код.
-4. В разделе «Мои активы» найдите вашу технику:
-   • Если на технике есть наклейка с QR-кодом — нажмите «Инвентаризировать по фото» и сфотографируйте QR-код.
-   • Если наклейки с QR-кодом нет или она повреждена — нажмите «Подтвердить без QR (фото)» и прикрепите фото шильдика / серийного номера устройства.
-5. Если у вас на руках есть рабочая техника, которой НЕТ в списке — нажмите кнопку «Добавить технику» внизу страницы и отправьте заявку с фото.
-6. Если в списке числится техника, которой у вас уже нет — нажмите «Сообщить о несоответствии».
-7. Убедитесь, что статус проверенной техники сменился на зелёную отметку «Проведён».
-
-В случае возникновения вопросов обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии 8-800-302-12-21.
-
----
-Служба технической поддержки ООО "АСГ"
-"""
+            subj, body, html_body = _build_reminder_message(rec, portal_url)
             try:
-                ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
+                ok, err = send_plain_text_email([to_email], subj, body, html_body=html_body)
                 ym_ok = False
                 ym_err = ""
                 if YANDEX_MESSENGER_ENABLED and YANDEX_MESSENGER_TOKEN and to_email:
@@ -6807,7 +6811,7 @@ async def admin_inventory_control_batch_action(
             except Exception as ex:
                 err_list.append(f"{to_email}: {ex}")
 
-        msg = f"Массовая рассылка завершена: успешно отправлено {sent_count} писем."
+        msg = f"Массовая рассылка завершена: успешно отправлено {sent_count} напоминаний."
         if skip_count > 0:
             msg += f" Пропущено (уже завершили или без email): {skip_count}."
         if err_list:

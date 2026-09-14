@@ -25,8 +25,9 @@ def send_plain_text_email(
     to_addrs: list[str],
     subject: str,
     body: str,
+    html_body: str | None = None,
 ) -> Tuple[bool, str]:
-    """Текстовое письмо без вложений (тот же SMTP, что и для кодов входа)."""
+    """Текстовое письмо без вложений (тот же SMTP, что и для кодов входа). При передаче html_body отправляется как multipart/alternative."""
     to_addrs = [_clean_header(a) for a in to_addrs if (a or "").strip()]
     to_addrs = [a for a in to_addrs if a]
     if not to_addrs:
@@ -42,10 +43,18 @@ def send_plain_text_email(
     if not host:
         return False, "Не настроена отправка почты (SMTP_HOST)."
 
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = clean_subject
-    msg["From"] = from_addr
-    msg["To"] = ", ".join(to_addrs)
+    if html_body:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = clean_subject
+        msg["From"] = from_addr
+        msg["To"] = ", ".join(to_addrs)
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+    else:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = clean_subject
+        msg["From"] = from_addr
+        msg["To"] = ", ".join(to_addrs)
 
     try:
         if use_ssl or port == 465:
