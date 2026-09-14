@@ -6607,27 +6607,53 @@ async def admin_inventory_control_delete(request: Request, emp_id: str):
 
 
 def _reminder_text_to_html(text: str) -> str:
-    """Преобразует текст напоминания (с **жирным**, ссылками и переносами) в красивое HTML-письмо."""
+    """Преобразует текст напоминания (с **жирным**, ссылками и переносами) в полноценный HTML-документ для Outlook/Exchange/Webmail."""
     import html
     escaped = html.escape(text or "")
 
-    # **жирный текст** -> <b>жирный текст</b>
-    formatted = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+    # **жирный текст** -> <strong style="font-weight: 700; color: #0f172a;">жирный текст</strong>
+    formatted = re.sub(
+        r"\*\*(.+?)\*\*",
+        r'<strong style="font-weight: 700; color: #0f172a;">\1</strong>',
+        escaped,
+    )
 
     # URL ссылки -> <a href="...">...</a>
     url_pattern = re.compile(r"(https?://[^\s<>\"]+)")
-    formatted = url_pattern.sub(r'<a href="\1" style="color: #0284c7; font-weight: 600; text-decoration: underline;" target="_blank" rel="noopener">\1</a>', formatted)
+    formatted = url_pattern.sub(
+        r'<a href="\1" style="color: #0284c7; font-weight: 600; text-decoration: underline;" target="_blank" rel="noopener">\1</a>',
+        formatted,
+    )
 
     # Email адреса -> <a href="mailto:...">...</a>
-    mail_pattern = re.compile(r'(?<!href="mailto:)(?<!href=")(?<!">)\b([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b')
-    formatted = mail_pattern.sub(r'<a href="mailto:\1" style="color: #0284c7; text-decoration: underline;">\1</a>', formatted)
+    mail_pattern = re.compile(
+        r'(?<!href="mailto:)(?<!href=")(?<!">)\b([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b'
+    )
+    formatted = mail_pattern.sub(
+        r'<a href="mailto:\1" style="color: #0284c7; text-decoration: underline;">\1</a>',
+        formatted,
+    )
 
     # Переносы строк
     formatted = formatted.replace("\r\n", "\n").replace("\n", "<br>\n")
 
-    return f"""<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #1e293b; max-width: 680px; padding: 12px 0;">
+    return f"""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="ru">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Инвентаризация техники</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #1e293b;">
+<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #ffffff;">
+<tr>
+<td align="left" style="padding: 16px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #1e293b; max-width: 680px;">
 {formatted}
-</div>"""
+</td>
+</tr>
+</table>
+</body>
+</html>"""
 
 
 def _build_reminder_message(rec: dict, portal_url: str) -> tuple[str, str, str]:

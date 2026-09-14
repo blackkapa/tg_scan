@@ -48,6 +48,7 @@ def send_plain_text_email(
         msg["Subject"] = clean_subject
         msg["From"] = from_addr
         msg["To"] = ", ".join(to_addrs)
+        msg["MIME-Version"] = "1.0"
         msg.attach(MIMEText(body, "plain", "utf-8"))
         msg.attach(MIMEText(html_body, "html", "utf-8"))
     else:
@@ -55,16 +56,21 @@ def send_plain_text_email(
         msg["Subject"] = clean_subject
         msg["From"] = from_addr
         msg["To"] = ", ".join(to_addrs)
+        msg["MIME-Version"] = "1.0"
 
     try:
-        if use_ssl or port == 465:
+        if port == 465 or (use_ssl and port != 25 and port != 587):
             with smtplib.SMTP_SSL(host, port, timeout=30) as smtp:
                 if user and password:
                     smtp.login(user, password)
                 smtp.sendmail(from_addr, to_addrs, msg.as_string())
         else:
             with smtplib.SMTP(host, port, timeout=30) as smtp:
-                smtp.starttls()
+                if smtp.has_extn("starttls"):
+                    try:
+                        smtp.starttls()
+                    except Exception:
+                        pass
                 if user and password:
                     smtp.login(user, password)
                 smtp.sendmail(from_addr, to_addrs, msg.as_string())
