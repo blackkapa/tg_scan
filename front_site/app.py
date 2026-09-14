@@ -62,11 +62,14 @@ from config import (
     WEB_TRANSFER_ENABLED,
     WEB_DISCREPANCY_ENABLED,
     WEB_DISCREPANCY_BUTTON_ENABLED,
+    YANDEX_MESSENGER_ENABLED,
+    YANDEX_MESSENGER_TOKEN,
     reload_web_flags_from_disk,
     _CONFIG_PATH as CONFIG_PATH,
 )
 import config as _config_runtime
 from atracker_client import ATrackerClient, inventory_number_from_atracker_dict
+from .yandex_messenger import send_yandex_message
 
 from .auth_web import (
     find_employee_by_input,
@@ -2536,6 +2539,8 @@ def _save_settings_config(
     web_discrepancy_button_enabled: bool = True,
     settings_secret: str = "",
     atracker_verify_ssl: bool = False,
+    yandex_messenger_enabled: bool = False,
+    yandex_messenger_token: str = "",
 ) -> None:
     cfg = _load_settings_config()
 
@@ -2598,6 +2603,11 @@ def _save_settings_config(
         cfg.set("smtp", "password", smtp_password.strip())
     if smtp_from:
         cfg.set("smtp", "from", smtp_from.strip())
+
+    _ensure_section(cfg, "yandex_messenger")
+    cfg.set("yandex_messenger", "enabled", "true" if yandex_messenger_enabled else "false")
+    if yandex_messenger_token is not None:
+        cfg.set("yandex_messenger", "token", yandex_messenger_token.strip())
 
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         cfg.write(f)
@@ -2920,6 +2930,13 @@ async def settings_page(request: Request) -> HTMLResponse:
         ).strip().lower()
         web_discrepancy_button_enabled = _dbe not in ("0", "false", "no", "off")
 
+    yandex_messenger_enabled = False
+    yandex_messenger_token = ""
+    if cfg.has_section("yandex_messenger"):
+        _yme = (cfg.get("yandex_messenger", "enabled", fallback="false") or "false").strip().lower()
+        yandex_messenger_enabled = _yme in ("1", "true", "yes", "on")
+        yandex_messenger_token = cfg.get("yandex_messenger", "token", fallback="")
+
     # Фильтры для читаемости аудита (по query-параметрам)
     try:
         limit = int(request.query_params.get("limit", "150"))
@@ -3030,6 +3047,9 @@ async def settings_page(request: Request) -> HTMLResponse:
             "smtp_password": "",
             "has_smtp_password": bool(smtp_password),
             "smtp_from": smtp_from,
+            "yandex_messenger_enabled": yandex_messenger_enabled,
+            "yandex_messenger_token": "",
+            "has_yandex_messenger_token": bool(yandex_messenger_token),
             "has_settings_secret": bool(cfg.get("web", "settings_secret", fallback="") if cfg.has_section("web") else False),
         },
         "audit_rows": audit_rows,
@@ -3082,6 +3102,8 @@ async def settings_save(
     web_transfer_enabled: str = Form("0"),
     web_discrepancy_enabled: str = Form("0"),
     web_discrepancy_button_enabled: str = Form("0"),
+    yandex_messenger_enabled: str = Form("0"),
+    yandex_messenger_token: str = Form(""),
     settings_secret: str = Form(""),
 ):
     """Сохранение настроек в config.ini и попытка перезапуска сервиса."""
@@ -3098,6 +3120,10 @@ async def settings_save(
     final_smtp_password = smtp_password.strip() if smtp_password else ""
     if not final_smtp_password:
         final_smtp_password = cfg_current.get("smtp", "password", fallback="")
+
+    final_ym_token = yandex_messenger_token.strip() if yandex_messenger_token else ""
+    if not final_ym_token:
+        final_ym_token = cfg_current.get("yandex_messenger", "token", fallback="")
 
     try:
         clean_atr_ssl = str(atracker_verify_ssl).strip().lower() in ("1", "true", "on", "yes")
@@ -3140,6 +3166,10 @@ async def settings_save(
                 str(web_discrepancy_button_enabled).strip() in ("1", "true", "on", "yes")
             ),
             settings_secret=settings_secret.strip(),
+            yandex_messenger_enabled=(
+                str(yandex_messenger_enabled).strip() in ("1", "true", "on", "yes")
+            ),
+            yandex_messenger_token=final_ym_token,
         )
         reload_web_flags_from_disk()
         globals()["EMAIL_DOMAIN_ALLOWED"] = _config_runtime.EMAIL_DOMAIN_ALLOWED
@@ -3154,6 +3184,8 @@ async def settings_save(
         globals()["WEB_DISCREPANCY_BUTTON_ENABLED"] = (
             _config_runtime.WEB_DISCREPANCY_BUTTON_ENABLED
         )
+        globals()["YANDEX_MESSENGER_ENABLED"] = _config_runtime.YANDEX_MESSENGER_ENABLED
+        globals()["YANDEX_MESSENGER_TOKEN"] = _config_runtime.YANDEX_MESSENGER_TOKEN
         restarted = _restart_front_site_service()
         if restarted:
             msg = "Настройки сохранены и сервис перезапущен."
@@ -6618,17 +6650,45 @@ async def admin_inventory_control_remind(request: Request, emp_id: str):
 
     try:
         ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
-        if ok:
+        ym_ok = False
+        ym_err = ""
+        if YANDEX_MESSENGER_ENABLED and YANDEX_MESSENGER_TOKEN and to_email:
+            ym_ok, ym_err = await send_yandex_message(
+                login=to_email,
+                text=body,
+                token=YANDEX_MESSENGER_TOKEN,
+            )
+
+        if ok or ym_ok:
             rec["last_reminded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             rec["remind_count"] = int(rec.get("remind_count") or 0) + 1
             save_controlled_employee(rec)
-            request.session["flash_message"] = f"Напоминание успешно отправлено на почту {to_email}."
-            _write_audit(request, action="inventory_control_remind", details=f"to={to_email}; fio={fio}")
+
+            channels = []
+            if ok:
+                channels.append(f"почту {to_email}")
+            if ym_ok:
+                channels.append("Яндекс Мессенджер")
+            channels_label = " и ".join(channels)
+
+            note = ""
+            if not ok and err:
+                note = f" (почта: {err})"
+            elif YANDEX_MESSENGER_ENABLED and not ym_ok and ym_err:
+                note = f" (мессенджер: {ym_err})"
+
+            request.session["flash_message"] = f"Напоминание успешно отправлено в {channels_label}.{note}"
+            _write_audit(
+                request,
+                action="inventory_control_remind",
+                details=f"to={to_email}; fio={fio}; email_ok={ok}; ym_ok={ym_ok}",
+            )
         else:
-            request.session["flash_message"] = f"Не удалось отправить письмо на {to_email}: {err}"
+            combined_err = "; ".join([e for e in (err, ym_err) if e]) or "Ошибка отправки"
+            request.session["flash_message"] = f"Не удалось отправить напоминание на {to_email}: {combined_err}"
     except Exception as ex:
-        logger.exception("Error sending reminder email to %s: %s", to_email, ex)
-        request.session["flash_message"] = f"Ошибка отправки письма: {ex}"
+        logger.exception("Error sending reminder to %s: %s", to_email, ex)
+        request.session["flash_message"] = f"Ошибка отправки напоминания: {ex}"
 
     return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
@@ -6728,13 +6788,22 @@ async def admin_inventory_control_batch_action(
 """
             try:
                 ok, err = send_plain_text_email([to_email], "Напоминание: необходимо пройти инвентаризацию техники", body)
-                if ok:
+                ym_ok = False
+                ym_err = ""
+                if YANDEX_MESSENGER_ENABLED and YANDEX_MESSENGER_TOKEN and to_email:
+                    ym_ok, ym_err = await send_yandex_message(
+                        login=to_email,
+                        text=body,
+                        token=YANDEX_MESSENGER_TOKEN,
+                    )
+                if ok or ym_ok:
                     rec["last_reminded_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     rec["remind_count"] = int(rec.get("remind_count") or 0) + 1
                     save_controlled_employee(rec)
                     sent_count += 1
                 else:
-                    err_list.append(f"{to_email}: {err}")
+                    combined_err = "; ".join([e for e in (err, ym_err) if e]) or "Ошибка отправки"
+                    err_list.append(f"{to_email}: {combined_err}")
             except Exception as ex:
                 err_list.append(f"{to_email}: {ex}")
 

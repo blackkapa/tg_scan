@@ -81,6 +81,10 @@ SMTP_USER = _get("smtp", "user", "")
 SMTP_PASSWORD = _get("smtp", "password", "")
 SMTP_FROM = _get("smtp", "from", "") or SMTP_USER or "noreply@asg.ru"
 
+# --- Yandex Messenger Bot ---
+YANDEX_MESSENGER_ENABLED = _getbool("yandex_messenger", "enabled", False)
+YANDEX_MESSENGER_TOKEN = _get("yandex_messenger", "token", "")
+
 
 def _parse_admin_emails() -> frozenset[str]:
     """Список почт, которым разрешён админский режим в веб-интерфейсе."""
@@ -229,6 +233,10 @@ def reload_web_flags_from_disk() -> None:
     WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
     WEB_DISCREPANCY_BUTTON_ENABLED = _getbool("web", "discrepancy_button_enabled", True)
     SESSION_SECRET_KEY = _get_session_secret()
+    # yandex messenger
+    global YANDEX_MESSENGER_ENABLED, YANDEX_MESSENGER_TOKEN
+    YANDEX_MESSENGER_ENABLED = _getbool("yandex_messenger", "enabled", False)
+    YANDEX_MESSENGER_TOKEN = _get("yandex_messenger", "token", "")
 
 
 

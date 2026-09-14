@@ -172,6 +172,32 @@
                     </div>
                 </div>
 
+                <!-- Yandex Messenger Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">Яндекс Мессенджер (Bot API)</h2>
+                            <p class="settings-section-card__desc">Отправка уведомлений и напоминаний сотрудникам в корпоративный чат по логину / email</p>
+                        </div>
+                    </div>
+                    <div class="settings-grid-2col">
+                        <label class="settings-field">
+                            <span>Уведомления в Яндекс Мессенджер</span>
+                            <select name="yandex_messenger_enabled" class="auth-form__input">
+                                <option value="true" {% if config.yandex_messenger_enabled %}selected{% endif %}>Включены (дублировать напоминания в чат)</option>
+                                <option value="false" {% if not config.yandex_messenger_enabled %}selected{% endif %}>Отключены</option>
+                            </select>
+                        </label>
+                        <label class="settings-field">
+                            <span>OAuth-токен бота</span>
+                            <input type="password" name="yandex_messenger_token" class="auth-form__input"
+                                   placeholder="{% if config.has_yandex_messenger_token %}•••••••• (сохранён){% else %}y0__wgBELr...{% endif %}"
+                                   value="" autocomplete="new-password">
+                            <small>Токен бота из панели Яндекс 360 для бизнеса (раздел «Боты»).</small>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Settings Secret Card -->
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">
