@@ -33,7 +33,7 @@
             </p>
         {% endif %}
 
-        {% if assets %}
+        {% if assets is not none and assets|length > 0 %}
             <div class="assets-list" style="margin-top: 1rem;">
                 {% for a in assets %}
                     <div class="assets-list__item {% if a.inventoried %}assets-list__item--done{% else %}assets-list__item--pending{% endif %}">
@@ -95,6 +95,44 @@
                         {% endif %}
                     </div>
                 {% endfor %}
+            </div>
+        {% elif assets is not none and assets|length == 0 %}
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1.25rem; margin-top: 1rem; text-align: left;">
+                <div style="font-size: 0.95rem; font-weight: 600; color: #334155; margin-bottom: 0.35rem;">
+                    📦 За сотрудником не закреплена техника в A‑Tracker
+                </div>
+
+                {% if target_no_assets_confirmed %}
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 0.9rem; margin-top: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; color: #166534; font-weight: 600; font-size: 0.92rem;">
+                            <span>✅</span> Подтверждено: техника отсутствует (инвентаризация пройдена)
+                        </div>
+                        {% if target_no_assets_confirmed_at %}
+                            <div style="font-size: 0.8rem; color: #15803d; margin-top: 0.35rem;">
+                                Отметка зафиксирована: <strong>{{ target_no_assets_confirmed_at }}</strong>
+                                {% if target_no_assets_confirmed_by %}(кем: {{ target_no_assets_confirmed_by }}){% endif %}
+                            </div>
+                        {% endif %}
+                    </div>
+                    <form method="post" action="/admin/target-toggle-no-assets" style="margin-top: 0.85rem;" onsubmit="return confirm('Снять отметку об отсутствии техники для {{ target_fio }}?');">
+                        <input type="hidden" name="confirmed" value="0">
+                        <button type="submit" class="assets-list__link-button" style="color: #dc2626; font-size: 0.88rem;">
+                            ✖ Снять отметку об отсутствии техники
+                        </button>
+                    </form>
+                {% else %}
+                    <p style="margin: 0.35rem 0 0 0; font-size: 0.88rem; color: #64748b; line-height: 1.45;">
+                        Если у сотрудника фактически отсутствует выданная техника компании, подтвердите это, нажав на кнопку ниже:
+                    </p>
+                    <div style="margin-top: 1rem;">
+                        <button type="button"
+                                class="assets-list__button assets-list__button--primary"
+                                style="width: 100%; padding: 0.85rem 1rem; font-size: 1rem;"
+                                onclick="openAdminNoAssetsModal()">
+                            У сотрудника отсутствует корпоративная техника
+                        </button>
+                    </div>
+                {% endif %}
             </div>
         {% endif %}
 
@@ -162,5 +200,56 @@
         </div>
     </div>
 </section>
+
+<!-- Модальное окно: Предупреждение и подтверждение отсутствия техники администратором -->
+<div id="adminNoAssetsModal" class="inv-modal" style="display: none;">
+    <div class="inv-modal__backdrop" onclick="closeAdminNoAssetsModal()"></div>
+    <div class="inv-modal__content" style="max-width: 480px;">
+        <div class="inv-modal__header">
+            <h2 style="margin: 0; font-size: 1.2rem;">Подтверждение отсутствия техники</h2>
+            <button type="button" class="inv-modal__close" onclick="closeAdminNoAssetsModal()">&times;</button>
+        </div>
+        
+        <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 1rem; margin-top: 1rem;">
+            <div style="display: flex; gap: 0.65rem; align-items: flex-start;">
+                <span style="font-size: 1.4rem; line-height: 1;">⚠️</span>
+                <div>
+                    <strong style="color: #92400e; font-size: 0.95rem;">Внимание!</strong>
+                    <p style="margin: 0.35rem 0 0 0; font-size: 0.88rem; color: #78350f; line-height: 1.45;">
+                        Вы подтверждаете, что за сотрудником <strong>{{ target_fio }}</strong> фактически <strong>отсутствует рабочая / корпоративная техника компании</strong> (ноутбуки, мониторы, системные блоки и др.).
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <p style="font-size: 0.85rem; color: #64748b; margin-top: 0.85rem; line-height: 1.4;">
+            Данное действие будет зафиксировано в журнале аудита администратором <strong>{{ fio }}</strong>, а статус проверки сотрудника будет отмечен как <strong>«Пройдена»</strong>.
+        </p>
+
+        <form method="post" action="/admin/target-toggle-no-assets" style="margin-top: 1.25rem;">
+            <input type="hidden" name="confirmed" value="1">
+            <div style="display: flex; justify-content: flex-end; gap: 0.65rem;">
+                <button type="button" class="assets-list__link-button" onclick="closeAdminNoAssetsModal()">
+                    Отмена
+                </button>
+                <button type="submit" class="auth-form__button" style="width: auto; padding: 0.6rem 1.25rem; background: #166534;">
+                    Подтверждаю отсутствие техники
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openAdminNoAssetsModal() {
+    const modal = document.getElementById('adminNoAssetsModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeAdminNoAssetsModal() {
+    const modal = document.getElementById('adminNoAssetsModal');
+    if (modal) modal.style.display = 'none';
+}
+</script>
 {% endblock %}
 

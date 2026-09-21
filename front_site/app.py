@@ -3537,8 +3537,30 @@ async def admin_page(request: Request):
         return RedirectResponse(url="/assets", status_code=302)
 
     target_fio = request.session.get("admin_target_fio")
+    target_email = request.session.get("admin_target_email")
     assets = None
+    target_no_assets_confirmed = False
+    target_no_assets_confirmed_at = ""
+    target_no_assets_confirmed_by = ""
+
     if target_fio:
+        if not target_email:
+            try:
+                client = _build_atracker_client()
+                emp_list = await client.get_employees()
+                _, t_em, _ = find_employee_by_input(emp_list, target_fio, EMAIL_DOMAIN_ALLOWED)
+                if t_em:
+                    target_email = t_em
+                    request.session["admin_target_email"] = t_em
+            except Exception:
+                pass
+
+        conf = get_no_assets_confirmation(target_email or "", target_fio)
+        if conf and conf.get("confirmed"):
+            target_no_assets_confirmed = True
+            target_no_assets_confirmed_at = conf.get("confirmed_at", "")
+            target_no_assets_confirmed_by = conf.get("confirmed_by", "")
+
         try:
             client = _build_atracker_client()
             raw_assets = await client.get_assets_by_fio(target_fio)
@@ -3578,6 +3600,10 @@ async def admin_page(request: Request):
         "title": "Режим администратора",
         "fio": fio,
         "target_fio": target_fio,
+        "target_email": target_email,
+        "target_no_assets_confirmed": target_no_assets_confirmed,
+        "target_no_assets_confirmed_at": target_no_assets_confirmed_at,
+        "target_no_assets_confirmed_by": target_no_assets_confirmed_by,
         "assets": assets,
         "message": request.session.pop("flash_message", None),
     }
@@ -3626,6 +3652,54 @@ async def admin_search(request: Request, identifier: str = Form(...)):
         return RedirectResponse(url="/admin", status_code=302)
 
     request.session["admin_target_fio"] = target_fio
+    if target_email:
+        request.session["admin_target_email"] = target_email
+    else:
+        request.session.pop("admin_target_email", None)
+    return RedirectResponse(url="/admin", status_code=302)
+
+
+@app.post("/admin/target-toggle-no-assets")
+async def admin_target_toggle_no_assets(
+    request: Request,
+    confirmed: str = Form("1"),
+):
+    """Администратор отмечает или снимает отметку об отсутствии техники у выбранного сотрудника."""
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    is_admin = bool(request.session.get("is_admin"))
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+    if not is_admin:
+        request.session["flash_message"] = "Доступ в режим администратора ограничен."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    target_fio = request.session.get("admin_target_fio")
+    target_email = request.session.get("admin_target_email")
+    if not target_fio:
+        request.session["flash_message"] = "Сначала выберите сотрудника."
+        return RedirectResponse(url="/admin", status_code=302)
+
+    is_confirmed = (str(confirmed).strip() in ("1", "true", "yes"))
+    admin_label = f"{fio} (администратор)"
+    set_no_assets_confirmed(target_fio, target_email or "", is_confirmed, by=admin_label)
+
+    _write_audit(
+        request,
+        action="admin_target_toggle_no_assets",
+        details=f"target_fio={target_fio}; target_email={target_email or ''}; confirmed={is_confirmed}; by={fio}",
+    )
+
+    if is_confirmed:
+        request.session["flash_message"] = (
+            f"Отметка об отсутствии техники для сотрудника {target_fio} установлена. "
+            "Инвентаризация зафиксирована как пройденная."
+        )
+    else:
+        request.session["flash_message"] = (
+            f"Отметка об отсутствии техники для сотрудника {target_fio} успешно снята."
+        )
+
     return RedirectResponse(url="/admin", status_code=302)
 
 

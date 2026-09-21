@@ -221,7 +221,10 @@ class TestNoAssetsConfirmation(unittest.TestCase):
              patch("front_site.app.send_code_email", return_value=(True, "")):
 
             mock_atracker = AsyncMock()
-            mock_atracker.get_employees.return_value = [{"sFullName": admin_fio, "sEmail": admin_email, "sLoginName": "admin"}]
+            mock_atracker.get_employees.return_value = [
+                {"sFullName": admin_fio, "sEmail": admin_email, "sLoginName": "admin"},
+                {"sFullName": "Козлов Константин", "sEmail": "kozlov@asg.ru", "sLoginName": "kozlov"},
+            ]
             mock_atracker.get_assets_by_fio.return_value = []
             mock_client_builder.return_value = mock_atracker
 
@@ -247,6 +250,32 @@ class TestNoAssetsConfirmation(unittest.TestCase):
             self.assertFalse(updated_emp2.get("no_assets_confirmed"))
             self.assertEqual(updated_emp2.get("status"), STATUS_NO_ASSETS)
             self.assertEqual(updated_emp2.get("progress_pct"), 0)
+
+            # Test admin search and toggle on /admin page
+            search_resp = client.post("/admin", data={"identifier": "kozlov@asg.ru"})
+            self.assertEqual(search_resp.status_code, 302)
+            self.assertEqual(search_resp.headers["location"], "/admin")
+
+            # View /admin page: should show button for employee with 0 assets
+            admin_view_resp = client.get("/admin")
+            self.assertEqual(admin_view_resp.status_code, 200)
+            self.assertIn("У сотрудника отсутствует корпоративная техника", admin_view_resp.text)
+
+            # Confirm no assets via /admin/target-toggle-no-assets
+            target_toggle_resp = client.post("/admin/target-toggle-no-assets", data={"confirmed": "1"})
+            self.assertEqual(target_toggle_resp.status_code, 302)
+            self.assertEqual(target_toggle_resp.headers["location"], "/admin")
+
+            # Verify employee confirmed
+            self.assertTrue(is_no_assets_confirmed("kozlov@asg.ru", "Козлов Константин"))
+            updated_emp3 = get_controlled_employee("emp-test-admin-1")
+            self.assertTrue(updated_emp3.get("no_assets_confirmed"))
+            self.assertEqual(updated_emp3.get("status"), STATUS_COMPLETED)
+
+            # Check /admin page again: should show confirmed status
+            admin_view_resp2 = client.get("/admin")
+            self.assertEqual(admin_view_resp2.status_code, 200)
+            self.assertIn("Подтверждено: техника отсутствует", admin_view_resp2.text)
 
 
 if __name__ == "__main__":
