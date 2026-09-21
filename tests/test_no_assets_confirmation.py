@@ -277,6 +277,19 @@ class TestNoAssetsConfirmation(unittest.TestCase):
             self.assertEqual(admin_view_resp2.status_code, 200)
             self.assertIn("Подтверждено: техника отсутствует", admin_view_resp2.text)
 
+            # Test /api/employees/suggest
+            suggest_resp = client.get("/api/employees/suggest?q=козлов")
+            self.assertEqual(suggest_resp.status_code, 200)
+            data = suggest_resp.json()
+            self.assertIn("items", data)
+            self.assertEqual(len(data["items"]), 1)
+            self.assertEqual(data["items"][0]["fio"], "Козлов Константин")
+            self.assertEqual(data["items"][0]["email"], "kozlov@asg.ru")
+
+            # Test search using target_email_override
+            override_resp = client.post("/admin", data={"identifier": "Козлов", "target_email_override": "kozlov@asg.ru"})
+            self.assertEqual(override_resp.status_code, 302)
+
 
 if __name__ == "__main__":
     unittest.main()

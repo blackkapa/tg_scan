@@ -1065,28 +1065,35 @@ html, body {
     left: 0;
     right: 0;
     top: 100%;
-    z-index: 20;
-    margin: 0.2rem 0 0;
-    padding: 0.25rem 0;
+    z-index: 100;
+    margin: 0.25rem 0 0;
+    padding: 0.35rem 0;
     list-style: none;
-    max-height: 220px;
+    max-height: 240px;
     overflow-y: auto;
     background: #ffffff;
-    border: 1px solid #d1d5db;
+    border: 1px solid #cbd5e1;
     border-radius: 8px;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 8px 10px -6px rgba(15, 23, 42, 0.1);
 }
 
 .autocomplete__item {
-    padding: 0.45rem 0.75rem;
+    padding: 0.5rem 0.85rem;
     cursor: pointer;
     font-size: 0.9rem;
     line-height: 1.35;
+    border-bottom: 1px solid #f1f5f9;
+    text-align: left;
+}
+
+.autocomplete__item:last-child {
+    border-bottom: none;
 }
 
 .autocomplete__item:hover,
-.autocomplete__item:focus {
-    background-color: #eef4fc;
+.autocomplete__item:focus,
+.autocomplete__item--active {
+    background-color: #f0f7ff;
 }
 
 .autocomplete__item--muted {

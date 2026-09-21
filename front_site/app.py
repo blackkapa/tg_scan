@@ -683,6 +683,28 @@ def _employee_suggest_matches(q: str, row: dict) -> bool:
     return q in blob
 
 
+_employees_cache: dict[str, Any] = {"ts": 0.0, "data": []}
+
+
+async def _get_cached_employees(client, ttl: float = 60.0) -> list[dict]:
+    import time
+    now = time.time()
+    cached = _employees_cache.get("data")
+    ts = _employees_cache.get("ts", 0.0)
+    if cached and (now - ts < ttl):
+        return cached
+    try:
+        data = await client.get_employees()
+        if data:
+            _employees_cache["data"] = data
+            _employees_cache["ts"] = now
+        return data or cached or []
+    except Exception:
+        if cached:
+            return cached
+        raise
+
+
 def _parse_location_service_row(raw: dict) -> tuple[int | None, str]:
     """Строка справочника локаций из A-Tracker (поля могут отличаться по внедрению)."""
     if not isinstance(raw, dict):
@@ -3611,7 +3633,11 @@ async def admin_page(request: Request):
 
 
 @app.post("/admin", response_class=HTMLResponse)
-async def admin_search(request: Request, identifier: str = Form(...)):
+async def admin_search(
+    request: Request,
+    identifier: str = Form(""),
+    target_email_override: str = Form(""),
+):
     """Поиск сотрудника по ФИО/логину/почте и показ его активов (для администратора)."""
     fio = request.session.get("user_fio")
     email = request.session.get("user_email")
@@ -3622,14 +3648,14 @@ async def admin_search(request: Request, identifier: str = Form(...)):
         request.session["flash_message"] = "Доступ в режим администратора ограничен."
         return RedirectResponse(url="/assets", status_code=302)
 
-    identifier = (identifier or "").strip()
-    if not identifier:
+    raw_ident = (target_email_override or identifier or "").strip()
+    if not raw_ident:
         request.session["flash_message"] = "Введите ФИО, логин или почту сотрудника."
         return RedirectResponse(url="/admin", status_code=302)
 
     try:
         client = _build_atracker_client()
-        employees = await client.get_employees()
+        employees = await _get_cached_employees(client, ttl=60.0)
     except Exception:
         request.session["flash_message"] = (
             "Не удалось загрузить список сотрудников из A‑Tracker. Попробуйте позже."
@@ -3637,7 +3663,7 @@ async def admin_search(request: Request, identifier: str = Form(...)):
         return RedirectResponse(url="/admin", status_code=302)
 
     target_fio, target_email, error = find_employee_by_input(
-        employees, identifier, EMAIL_DOMAIN_ALLOWED
+        employees, raw_ident, EMAIL_DOMAIN_ALLOWED
     )
     if error:
         request.session["flash_message"] = error
@@ -5277,6 +5303,56 @@ async def api_asset_add_check_serial(request: Request, serial_number: str = ""):
     return JSONResponse({"items": items, "enabled": True})
 
 
+@app.get("/api/employees/suggest")
+async def api_employees_suggest(request: Request, q: str = "", limit: int = 15):
+    """Живой поиск сотрудников для автодополнения (по ФИО, логину, email)."""
+    if not request.session.get("user_email"):
+        return JSONResponse({"items": [], "error": "unauthorized"}, status_code=401)
+
+    qn = (q or "").strip().lower()
+    if not qn:
+        return JSONResponse({"items": []})
+
+    client = _build_atracker_client()
+    try:
+        employees = await _get_cached_employees(client, ttl=60.0)
+    except Exception as ex:
+        logger.warning("Failed to fetch employees for suggest: %s", ex)
+        return JSONResponse({"items": []})
+
+    items: list[dict] = []
+    terms = [w for w in qn.split() if w]
+
+    for emp in employees or []:
+        if not isinstance(emp, dict):
+            continue
+        fio = (emp.get("sFullName") or emp.get("sfullname") or "").strip()
+        login = (emp.get("sLoginName") or emp.get("sloginname") or "").strip()
+        em = (emp.get("sEmail") or emp.get("semail") or "").strip()
+        if not fio and not em and not login:
+            continue
+
+        blob = f"{fio} {em} {login}".lower()
+        if all(t in blob for t in terms):
+            sub_parts = []
+            if em:
+                sub_parts.append(em)
+            if login and login.lower() != (em.split("@")[0].lower() if "@" in em else ""):
+                sub_parts.append(login)
+            sub_text = " · ".join(sub_parts)
+
+            items.append({
+                "fio": fio or "—",
+                "email": em,
+                "login": login,
+                "sub": sub_text,
+            })
+            if len(items) >= limit:
+                break
+
+    return JSONResponse({"items": items})
+
+
 @app.get("/api/transfer/employees")
 async def api_transfer_employees(request: Request, q: str = ""):
     if not request.session.get("user_email"):
@@ -5285,7 +5361,7 @@ async def api_transfer_employees(request: Request, q: str = ""):
         return JSONResponse({"items": [], "error": "disabled"}, status_code=403)
     client = _build_atracker_client()
     try:
-        employees = await client.get_employees()
+        employees = await _get_cached_employees(client, ttl=60.0)
     except Exception:
         return JSONResponse({"items": []})
     qn = (q or "").strip().lower()
@@ -6531,6 +6607,7 @@ async def admin_inventory_control_dashboard(request: Request):
 async def admin_inventory_control_add_single(
     request: Request,
     identifier: str = Form(""),
+    target_email_override: str = Form(""),
 ):
     """Поиск и добавление одного сотрудника на контроль."""
     is_admin = bool(request.session.get("is_admin"))
@@ -6538,14 +6615,14 @@ async def admin_inventory_control_add_single(
         request.session["flash_message"] = "Доступ ограничен."
         return RedirectResponse(url="/assets", status_code=302)
 
-    raw_ident = (identifier or "").strip()
+    raw_ident = (target_email_override or identifier or "").strip()
     if not raw_ident:
         request.session["flash_message"] = "Укажите ФИО, email или логин сотрудника."
         return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
     client = _build_atracker_client()
     try:
-        all_emp = await client.get_employees()
+        all_emp = await _get_cached_employees(client, ttl=60.0)
     except Exception as ex:
         request.session["flash_message"] = f"Не удалось получить список сотрудников из A-Tracker: {ex}"
         return RedirectResponse(url="/admin/inventory-control", status_code=302)

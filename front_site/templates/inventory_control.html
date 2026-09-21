@@ -272,9 +272,13 @@
             <form method="post" action="/admin/inventory-control/add" class="auth-form" onsubmit="showLoadingOverlay('Поиск и загрузка активов из A-Tracker...')">
                 <label class="auth-form__label">
                     <span>ФИО, email или логин сотрудника</span>
-                    <input type="text" name="identifier" class="auth-form__input" placeholder="ivanov@asg.ru или Иванов Иван" required>
+                    <div class="autocomplete" id="addEmpAutocomplete">
+                        <input type="text" name="identifier" id="singleIdentifierInput" class="auth-form__input" placeholder="Начните вводить фамилию, логин или email..." autocomplete="off" required>
+                        <input type="hidden" name="target_email_override" id="singleIdentifierEmail" value="">
+                        <ul class="autocomplete__list" id="addEmpSuggestions" hidden role="listbox"></ul>
+                    </div>
                     <small style="color: #666; display: block; margin-top: 0.25rem;">
-                        Система проверит сотрудника в A-Tracker и сразу загрузит список его техники.
+                        Выберите сотрудника из выпадающего списка или введите точный email/логин.
                     </small>
                 </label>
                 <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
@@ -594,5 +598,16 @@ function showLoadingOverlay(text) {
     if (text) document.getElementById('loadingText').textContent = text;
     document.getElementById('loadingOverlay').style.display = 'flex';
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof window.initEmployeeAutocomplete === 'function') {
+        window.initEmployeeAutocomplete({
+            containerId: 'addEmpAutocomplete',
+            inputId: 'singleIdentifierInput',
+            listId: 'addEmpSuggestions',
+            hiddenEmailId: 'singleIdentifierEmail'
+        });
+    }
+});
 </script>
 {% endblock %}

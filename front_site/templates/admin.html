@@ -16,13 +16,19 @@
         <form method="post" action="/admin" class="auth-form" style="margin-top: 1rem;">
             <label class="auth-form__label">
                 <span>Найти сотрудника по ФИО, логину или почте</span>
-                <input
-                    class="auth-form__input"
-                    type="text"
-                    name="identifier"
-                    placeholder="Иванов Иван Иванович / ivanov / ivanov@asg.ru"
-                    required
-                >
+                <div class="autocomplete" id="adminSearchAutocomplete">
+                    <input
+                        class="auth-form__input"
+                        type="text"
+                        name="identifier"
+                        id="adminSearchInput"
+                        placeholder="Начните вводить фамилию, логин или email..."
+                        autocomplete="off"
+                        required
+                    >
+                    <input type="hidden" name="target_email_override" id="adminSearchEmail" value="">
+                    <ul class="autocomplete__list" id="adminSearchSuggestions" hidden role="listbox"></ul>
+                </div>
             </label>
             <button type="submit" class="auth-form__button">Показать технику</button>
         </form>
@@ -250,6 +256,17 @@ function closeAdminNoAssetsModal() {
     const modal = document.getElementById('adminNoAssetsModal');
     if (modal) modal.style.display = 'none';
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof window.initEmployeeAutocomplete === 'function') {
+        window.initEmployeeAutocomplete({
+            containerId: 'adminSearchAutocomplete',
+            inputId: 'adminSearchInput',
+            listId: 'adminSearchSuggestions',
+            hiddenEmailId: 'adminSearchEmail'
+        });
+    }
+});
 </script>
 {% endblock %}
 

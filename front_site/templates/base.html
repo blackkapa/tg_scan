@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>{% block title %}Инвентаризация техники{% endblock %}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}?v=7">
+    <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}?v=8">
 </head>
 <body>
     <header class="site-header">
@@ -63,6 +63,148 @@
             <span>По вопросам, связанным с техникой, обращайтесь в техподдержку: sd@asg.ru или по номеру горячей линии.</span>
         </div>
     </footer>
+
+    <script>
+    window.initEmployeeAutocomplete = function(config) {
+        var container = document.getElementById(config.containerId);
+        var input = document.getElementById(config.inputId);
+        var list = document.getElementById(config.listId);
+        var hiddenEmail = config.hiddenEmailId ? document.getElementById(config.hiddenEmailId) : null;
+        if (!container || !input || !list) return;
+
+        var debounceTimer = null;
+        var currentFocus = -1;
+
+        function hide() {
+            list.hidden = true;
+            list.innerHTML = '';
+            currentFocus = -1;
+        }
+
+        function showMessage(msg) {
+            list.innerHTML = '<li class="autocomplete__item autocomplete__item--muted" style="padding: 0.6rem 0.85rem; color: #64748b; font-size: 0.85rem;">' + msg + '</li>';
+            list.hidden = false;
+        }
+
+        function fetchSuggestions() {
+            var q = (input.value || '').trim();
+            if (q.length < 1) {
+                hide();
+                return;
+            }
+
+            showMessage('Поиск сотрудников…');
+
+            fetch('/api/employees/suggest?q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    var items = (data && data.items) ? data.items : [];
+                    list.innerHTML = '';
+                    currentFocus = -1;
+
+                    if (!items.length) {
+                        showMessage('Сотрудник не найден в A-Tracker');
+                        return;
+                    }
+
+                    items.forEach(function(it, index) {
+                        var li = document.createElement('li');
+                        li.className = 'autocomplete__item';
+                        li.setAttribute('role', 'option');
+                        li.dataset.index = index;
+
+                        var fioDiv = document.createElement('div');
+                        fioDiv.style.fontWeight = '600';
+                        fioDiv.style.color = '#1e293b';
+                        fioDiv.textContent = it.fio;
+
+                        var subDiv = document.createElement('div');
+                        subDiv.style.fontSize = '0.78rem';
+                        subDiv.style.color = '#64748b';
+                        subDiv.style.marginTop = '0.1rem';
+                        subDiv.textContent = it.sub || it.email || it.login || '';
+
+                        li.appendChild(fioDiv);
+                        if (it.sub || it.email) {
+                            li.appendChild(subDiv);
+                        }
+
+                        li.addEventListener('mousedown', function(e) {
+                            e.preventDefault();
+                            selectItem(it);
+                        });
+
+                        list.appendChild(li);
+                    });
+                    list.hidden = false;
+                })
+                .catch(function() {
+                    showMessage('Ошибка загрузки данных');
+                });
+        }
+
+        function selectItem(it) {
+            input.value = it.fio;
+            if (hiddenEmail) {
+                hiddenEmail.value = it.email || it.fio;
+            }
+            hide();
+            if (typeof config.onSelect === 'function') {
+                config.onSelect(it);
+            }
+        }
+
+        input.addEventListener('input', function() {
+            if (hiddenEmail) hiddenEmail.value = '';
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(fetchSuggestions, 200);
+        });
+
+        input.addEventListener('focus', function() {
+            if ((input.value || '').trim().length >= 1) {
+                fetchSuggestions();
+            }
+        });
+
+        input.addEventListener('keydown', function(e) {
+            var items = list.querySelectorAll('.autocomplete__item:not(.autocomplete__item--muted)');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                currentFocus++;
+                if (currentFocus >= items.length) currentFocus = 0;
+                setActive(items);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                currentFocus--;
+                if (currentFocus < 0) currentFocus = items.length - 1;
+                setActive(items);
+            } else if (e.key === 'Enter') {
+                if (currentFocus > -1 && items[currentFocus]) {
+                    e.preventDefault();
+                    items[currentFocus].dispatchEvent(new MouseEvent('mousedown'));
+                }
+            } else if (e.key === 'Escape') {
+                hide();
+            }
+        });
+
+        function setActive(items) {
+            for (var i = 0; i < items.length; i++) {
+                items[i].classList.remove('autocomplete__item--active');
+            }
+            if (currentFocus > -1 && items[currentFocus]) {
+                items[currentFocus].classList.add('autocomplete__item--active');
+                items[currentFocus].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!container.contains(e.target)) {
+                hide();
+            }
+        });
+    };
+    </script>
 </body>
 </html>
 
