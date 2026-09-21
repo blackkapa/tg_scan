@@ -119,6 +119,9 @@ from .inventory_control import (
     refresh_controlled_employee,
     refresh_all_controlled_employees,
     generate_inventory_control_csv,
+    is_no_assets_confirmed,
+    get_no_assets_confirmation,
+    set_no_assets_confirmed,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -2796,6 +2799,8 @@ AUDIT_ACTION_MAP: dict[str, tuple[str, str, str]] = {
     "inventory_control_remind": ("Напоминание отправлено", "inventory", "success"),
     "inventory_control_batch_remind": ("Напоминания отправлены", "inventory", "success"),
     "inventory_control_batch_delete": ("Сотрудники удалены из контроля", "inventory", "warning"),
+    "inventory_control_toggle_no_assets": ("Отметка отсутствия техники изменена", "inventory", "info"),
+    "confirm_no_assets": ("Подтверждение отсутствия техники", "inventory", "success"),
     "settings_open": ("Просмотр настроек", "system", "info"),
     "settings_save": ("Сохранение настроек", "system", "success"),
     "settings_save_error": ("Ошибка сохранения", "security", "danger"),
@@ -3427,10 +3432,21 @@ async def assets_page(request: Request):
         return render_template("assets.html", context, status_code=502)
 
     if not assets:
+        no_assets_conf = get_no_assets_confirmation(email, fio)
+        is_confirmed = bool(no_assets_conf and no_assets_conf.get("confirmed"))
+        confirmed_at = (no_assets_conf.get("confirmed_at") if no_assets_conf else "") or ""
+        confirmed_by = (no_assets_conf.get("confirmed_by") if no_assets_conf else "") or ""
         context = {
             "request": request,
             "title": "Мои активы",
             "fio": fio,
+            "email": email,
+            "no_assets_confirmed": is_confirmed,
+            "no_assets_confirmed_at": confirmed_at,
+            "no_assets_confirmed_by": confirmed_by,
+            "is_admin": bool(request.session.get("is_admin")),
+            "message": request.session.pop("flash_message", None),
+            "asset_add_button_enabled": WEB_ASSET_ADD_BUTTON_ENABLED,
         }
         return render_template("no_assets.html", context)
 
@@ -3472,6 +3488,31 @@ async def assets_page(request: Request):
         "discrepancy_button_enabled": WEB_DISCREPANCY_BUTTON_ENABLED,
     }
     return render_template("assets.html", context)
+
+
+@app.post("/assets/confirm-no-assets")
+async def confirm_no_assets_endpoint(request: Request):
+    """Сотрудник подтверждает, что у него отсутствует корпоративная техника."""
+    fio = request.session.get("user_fio")
+    email = request.session.get("user_email")
+    if not fio or not email:
+        return RedirectResponse(url="/", status_code=302)
+
+    # Проверяем в A-Tracker, что у сотрудника действительно 0 единиц техники (защита от злоупотреблений)
+    try:
+        client = _build_atracker_client()
+        assets = await client.get_assets_by_fio(fio)
+    except Exception:
+        assets = []
+
+    if assets and len(assets) > 0:
+        request.session["flash_message"] = "У вас числится закреплённая техника в A-Tracker. Пожалуйста, пройдите инвентаризацию по списку."
+        return RedirectResponse(url="/assets", status_code=302)
+
+    set_no_assets_confirmed(fio=fio, email=email, confirmed=True, by=email)
+    _write_audit(request, action="confirm_no_assets", details=f"email={email}; fio={fio}")
+    request.session["flash_message"] = "Вы подтвердили отсутствие корпоративной техники. Инвентаризация успешно завершена!"
+    return RedirectResponse(url="/assets", status_code=302)
 
 
 @app.get("/logout")
@@ -6603,6 +6644,45 @@ async def admin_inventory_control_delete(request: Request, emp_id: str):
     delete_controlled_employee(emp_id)
     request.session["flash_message"] = f"Сотрудник «{fio}» удален из списка контроля."
     _write_audit(request, action="inventory_control_delete", details=f"id={emp_id}; fio={fio}")
+    return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+
+@app.post("/admin/inventory-control/{emp_id}/toggle-no-assets")
+async def admin_inventory_control_toggle_no_assets(
+    request: Request,
+    emp_id: str,
+    confirmed: str = Form(""),
+):
+    """Администратор включает или отключает отметку об отсутствии техники у сотрудника."""
+    is_admin = bool(request.session.get("is_admin"))
+    admin_email = request.session.get("user_email") or "admin"
+    if not is_admin:
+        return RedirectResponse(url="/assets", status_code=302)
+
+    rec = get_controlled_employee(emp_id)
+    if not rec:
+        request.session["flash_message"] = "Запись сотрудника не найдена."
+        return RedirectResponse(url="/admin/inventory-control", status_code=302)
+
+    val = (confirmed or "").strip().lower()
+    if val in ("1", "true", "yes", "on"):
+        new_val = True
+    elif val in ("0", "false", "no", "off"):
+        new_val = False
+    else:
+        new_val = not bool(rec.get("no_assets_confirmed"))
+
+    fio = rec.get("fio") or ""
+    email = rec.get("email") or ""
+
+    set_no_assets_confirmed(fio=fio, email=email, confirmed=new_val, by=admin_email)
+    _write_audit(
+        request,
+        action="inventory_control_toggle_no_assets",
+        details=f"emp_id={emp_id}; fio={fio}; email={email}; confirmed={new_val}; by={admin_email}",
+    )
+    status_msg = "установлена" if new_val else "снята"
+    request.session["flash_message"] = f"Отметка «Корпоративная техника отсутствует» для сотрудника «{fio}» {status_msg}."
     return RedirectResponse(url="/admin/inventory-control", status_code=302)
 
 

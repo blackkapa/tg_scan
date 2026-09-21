@@ -15,6 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 INVENTORY_CONTROL_STORE_PATH = DATA_DIR / "inventory_control.json"
 CONFIRMATIONS_STORE_PATH = DATA_DIR / "inventory_confirmations.json"
+NO_ASSETS_CONFIRMATIONS_STORE_PATH = DATA_DIR / "no_assets_confirmations.json"
 
 STATUS_COMPLETED = "completed"
 STATUS_IN_PROGRESS = "in_progress"
@@ -55,6 +56,8 @@ def _ensure_store() -> None:
         INVENTORY_CONTROL_STORE_PATH.write_text("[]", encoding="utf-8")
     if not CONFIRMATIONS_STORE_PATH.exists():
         CONFIRMATIONS_STORE_PATH.write_text("{}", encoding="utf-8")
+    if not NO_ASSETS_CONFIRMATIONS_STORE_PATH.exists():
+        NO_ASSETS_CONFIRMATIONS_STORE_PATH.write_text("{}", encoding="utf-8")
 
 
 def _load_confirmations() -> Dict[str, Any]:
@@ -103,6 +106,51 @@ def save_asset_confirmation(
     confs[str(asset_id)] = rec
     _save_confirmations(confs)
     return rec
+
+
+def _normalize_key(text: str) -> str:
+    return (text or "").strip().lower()
+
+
+def _load_no_assets_confirmations() -> Dict[str, Any]:
+    _ensure_store()
+    try:
+        parsed = json.loads(NO_ASSETS_CONFIRMATIONS_STORE_PATH.read_text(encoding="utf-8"))
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+    return {}
+
+
+def _save_no_assets_confirmations(data: Dict[str, Any]) -> None:
+    _ensure_store()
+    NO_ASSETS_CONFIRMATIONS_STORE_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def is_no_assets_confirmed(email: str = "", fio: str = "") -> bool:
+    confs = _load_no_assets_confirmations()
+    em_key = _normalize_key(email)
+    fio_key = _normalize_key(fio)
+    if em_key and em_key in confs and confs[em_key].get("confirmed"):
+        return True
+    if fio_key and fio_key in confs and confs[fio_key].get("confirmed"):
+        return True
+    return False
+
+
+def get_no_assets_confirmation(email: str = "", fio: str = "") -> Optional[Dict[str, Any]]:
+    confs = _load_no_assets_confirmations()
+    em_key = _normalize_key(email)
+    fio_key = _normalize_key(fio)
+    if em_key and em_key in confs:
+        return confs[em_key]
+    if fio_key and fio_key in confs:
+        return confs[fio_key]
+    return None
 
 
 def _save_items(items: List[Dict[str, Any]]) -> None:
@@ -174,6 +222,77 @@ def save_controlled_employee(record: Dict[str, Any]) -> Dict[str, Any]:
 
     _save_items(items)
     return record
+
+
+def set_no_assets_confirmed(fio: str, email: str, confirmed: bool, by: str = "") -> Dict[str, Any]:
+    confs = _load_no_assets_confirmations()
+    em_key = _normalize_key(email)
+    fio_key = _normalize_key(fio)
+    now_ts = _now_str()
+
+    rec = {
+        "fio": (fio or "").strip(),
+        "email": (email or "").strip(),
+        "confirmed": bool(confirmed),
+        "confirmed_at": now_ts if confirmed else "",
+        "confirmed_by": (by or "").strip() if confirmed else "",
+    }
+    if em_key:
+        confs[em_key] = rec
+    if fio_key:
+        confs[fio_key] = rec
+    _save_no_assets_confirmations(confs)
+
+    # Также обновляем запись в списке сотрудников на контроле, если сотрудник там есть
+    emp = get_controlled_employee_by_email(email)
+    if not emp and fio_key:
+        for item in list_controlled_employees():
+            if _normalize_key(item.get("fio")) == fio_key:
+                emp = item
+                break
+
+    if emp:
+        emp["no_assets_confirmed"] = bool(confirmed)
+        emp["no_assets_confirmed_at"] = now_ts if confirmed else ""
+        emp["no_assets_confirmed_by"] = (by or "").strip() if confirmed else ""
+        if (emp.get("total_assets") or 0) == 0:
+            if confirmed:
+                emp["status"] = STATUS_COMPLETED
+                emp["status_label"] = "Пройдена (нет техники)"
+                emp["progress_pct"] = 100
+                emp["completed_at"] = now_ts
+            else:
+                emp["status"] = STATUS_NO_ASSETS
+                emp["status_label"] = STATUS_LABELS[STATUS_NO_ASSETS]
+                emp["progress_pct"] = 0
+                emp["completed_at"] = ""
+        save_controlled_employee(emp)
+    else:
+        # Если сотрудника ещё не было в списке контроля, но он подтвердил отсутствие техники,
+        # автоматически добавляем его в список со статусом Пройдена
+        if confirmed:
+            new_emp = {
+                "id": str(uuid4()),
+                "fio": (fio or "").strip(),
+                "email": (email or "").strip(),
+                "login": (email.split("@")[0] if email and "@" in email else ""),
+                "total_assets": 0,
+                "inventoried_assets": 0,
+                "progress_pct": 100,
+                "status": STATUS_COMPLETED,
+                "status_label": "Пройдена (нет техники)",
+                "assets_snapshot": [],
+                "qr_count": 0,
+                "self_no_qr_count": 0,
+                "created_at": now_ts,
+                "last_checked_at": now_ts,
+                "completed_at": now_ts,
+                "no_assets_confirmed": True,
+                "no_assets_confirmed_at": now_ts,
+                "no_assets_confirmed_by": (by or "").strip(),
+            }
+            save_controlled_employee(new_emp)
+    return rec
 
 
 def compute_inventory_summary(
@@ -284,16 +403,40 @@ async def refresh_controlled_employee(
         emp_record["total_assets"] = total
         emp_record["inventoried_assets"] = inv_count
         emp_record["progress_pct"] = pct
-        emp_record["status"] = status
-        emp_record["status_label"] = STATUS_LABELS.get(status, status)
         emp_record["assets_snapshot"] = snapshot
         emp_record["qr_count"] = qr_cnt
         emp_record["self_no_qr_count"] = self_no_qr_cnt
         emp_record["last_checked_at"] = _now_str()
-        if status == STATUS_COMPLETED and not emp_record.get("completed_at"):
-            emp_record["completed_at"] = _now_str()
-        elif status != STATUS_COMPLETED:
-            emp_record["completed_at"] = ""
+
+        # Проверяем подтверждение отсутствия техники
+        conf = get_no_assets_confirmation(emp_record.get("email", ""), emp_record.get("fio", ""))
+        is_no_assets = bool(conf and conf.get("confirmed")) if conf else bool(emp_record.get("no_assets_confirmed"))
+
+        if total == 0:
+            if is_no_assets:
+                emp_record["no_assets_confirmed"] = True
+                emp_record["no_assets_confirmed_at"] = (conf.get("confirmed_at") if conf else emp_record.get("no_assets_confirmed_at")) or _now_str()
+                emp_record["no_assets_confirmed_by"] = (conf.get("confirmed_by") if conf else emp_record.get("no_assets_confirmed_by")) or ""
+                emp_record["status"] = STATUS_COMPLETED
+                emp_record["status_label"] = "Пройдена (нет техники)"
+                emp_record["progress_pct"] = 100
+                if not emp_record.get("completed_at"):
+                    emp_record["completed_at"] = emp_record["no_assets_confirmed_at"]
+            else:
+                emp_record["no_assets_confirmed"] = False
+                emp_record["status"] = status
+                emp_record["status_label"] = STATUS_LABELS.get(status, status)
+                emp_record["completed_at"] = ""
+        else:
+            # Если у сотрудника появилась техника в A-Tracker, статус подтверждения отсутствия техники снимается
+            emp_record["no_assets_confirmed"] = False
+            emp_record["status"] = status
+            emp_record["status_label"] = STATUS_LABELS.get(status, status)
+            if status == STATUS_COMPLETED and not emp_record.get("completed_at"):
+                emp_record["completed_at"] = _now_str()
+            elif status != STATUS_COMPLETED:
+                emp_record["completed_at"] = ""
+
         emp_record["check_error"] = ""
     except Exception as ex:
         logger.exception("Error checking inventory status for %s: %s", fio, ex)
@@ -355,25 +498,33 @@ def generate_inventory_control_csv() -> bytes:
     for it in items:
         status_label = STATUS_LABELS.get(it.get("status", ""), it.get("status", ""))
         assets_text = ""
-        for a in it.get("assets_snapshot") or []:
-            method = a.get("method")
-            if a.get("inventoried"):
-                if method == METHOD_SELF_NO_QR:
-                    mark = "[✓ Без QR]"
-                elif method == METHOD_ASSET_ADD:
-                    mark = "[✓ Заявка]"
-                elif method == METHOD_ADMIN_MANUAL:
-                    mark = "[✓ Админ]"
-                else:
-                    mark = "[✓ QR]"
-            else:
-                mark = "[ ]"
 
-            name = a.get("name") or f"ID {a.get('id')}"
-            inv = a.get("invent") or "—"
-            sn = a.get("serial") or "—"
-            comm = f" ({a['user_comment']})" if a.get("user_comment") else ""
-            assets_text += f"{mark} {name} (Инв: {inv}, Сер: {sn}{comm}) | "
+        if it.get("no_assets_confirmed") and (it.get("total_assets") or 0) == 0:
+            status_label = "Пройдена (нет техники)"
+            confirmed_at = it.get("no_assets_confirmed_at") or "—"
+            confirmed_by = it.get("no_assets_confirmed_by") or ""
+            by_str = f", кем: {confirmed_by}" if confirmed_by else ""
+            assets_text = f"Корпоративная техника отсутствует (подтверждено: {confirmed_at}{by_str})"
+        else:
+            for a in it.get("assets_snapshot") or []:
+                method = a.get("method")
+                if a.get("inventoried"):
+                    if method == METHOD_SELF_NO_QR:
+                        mark = "[✓ Без QR]"
+                    elif method == METHOD_ASSET_ADD:
+                        mark = "[✓ Заявка]"
+                    elif method == METHOD_ADMIN_MANUAL:
+                        mark = "[✓ Админ]"
+                    else:
+                        mark = "[✓ QR]"
+                else:
+                    mark = "[ ]"
+
+                name = a.get("name") or f"ID {a.get('id')}"
+                inv = a.get("invent") or "—"
+                sn = a.get("serial") or "—"
+                comm = f" ({a['user_comment']})" if a.get("user_comment") else ""
+                assets_text += f"{mark} {name} (Инв: {inv}, Сер: {sn}{comm}) | "
 
         writer.writerow([
             it.get("fio") or "",

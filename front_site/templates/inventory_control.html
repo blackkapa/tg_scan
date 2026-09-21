@@ -97,7 +97,7 @@
                     </thead>
                     <tbody>
                         {% for emp in employees %}
-                            <tr class="inv-row" data-status="{{ emp.status }}" data-search="{{ emp.fio|lower }} {{ emp.email|lower }} {{ emp.login|lower }}">
+                            <tr class="inv-row" data-status="{{ emp.status }}" data-no-assets="{{ 'true' if (emp.total_assets or 0) == 0 else 'false' }}" data-search="{{ emp.fio|lower }} {{ emp.email|lower }} {{ emp.login|lower }}">
                                 <td style="text-align: center;">
                                     <input type="checkbox" class="emp-checkbox" value="{{ emp.id }}" data-fio="{{ emp.fio|escape }}" data-email="{{ emp.email or '' }}" data-status="{{ emp.status }}" data-total="{{ emp.total_assets }}" onchange="updateBatchToolbar()" style="cursor: pointer; width: 16px; height: 16px;">
                                 </td>
@@ -112,7 +112,9 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if emp.status == 'completed' %}
+                                    {% if emp.no_assets_confirmed %}
+                                        <span class="inv-badge inv-badge--success" title="Сотрудник подтвердил отсутствие корпоративной техники">✓ Пройдена (нет техники)</span>
+                                    {% elif emp.status == 'completed' %}
                                         <span class="inv-badge inv-badge--success">✓ Пройдена</span>
                                     {% elif emp.status == 'in_progress' %}
                                         <span class="inv-badge inv-badge--warning">⏳ В процессе</span>
@@ -125,7 +127,14 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if emp.status == 'no_assets' %}
+                                    {% if emp.no_assets_confirmed %}
+                                        <div style="font-size: 0.82rem; color: #166534; font-weight: 500;">
+                                            Техника отсутствует
+                                        </div>
+                                        <div class="inv-progress-bar" style="margin-top: 0.25rem;">
+                                            <div class="inv-progress-fill inv-progress-fill--success" style="width: 100%;"></div>
+                                        </div>
+                                    {% elif emp.status == 'no_assets' %}
                                         <span style="font-size: 0.85rem; color: #777;">0 единиц в учёте</span>
                                     {% else %}
                                         <div style="display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 0.25rem;">
@@ -160,7 +169,7 @@
                                 <td style="text-align: right;">
                                     <div class="inv-actions">
                                         <!-- Кнопка детализации техники -->
-                                        <button type="button" class="inv-action-btn" title="Посмотреть список техники" onclick='openAssetsModal({{ emp.assets_snapshot|tojson }}, "{{ emp.fio|escape }}", "{{ emp.status }}", {{ emp.inventoried_assets }}, {{ emp.total_assets }})'>
+                                        <button type="button" class="inv-action-btn" title="Посмотреть список техники" onclick='openAssetsModal({{ emp.assets_snapshot|tojson }}, "{{ emp.fio|escape }}", "{{ emp.status }}", {{ emp.inventoried_assets }}, {{ emp.total_assets }}, "{{ emp.id }}", {{ "true" if emp.no_assets_confirmed else "false" }}, "{{ emp.no_assets_confirmed_at or '' }}", "{{ emp.no_assets_confirmed_by or '' }}")'>
                                             🔍 Техника ({{ emp.total_assets }})
                                         </button>
 
@@ -171,8 +180,18 @@
                                             </button>
                                         </form>
 
-                                        <!-- Напомнить на email (если не завершено и есть email и техника > 0) -->
-                                        {% if emp.email and emp.status != 'completed' and emp.status != 'no_assets' %}
+                                        <!-- Быстрый тоггл отсутствия техники для сотрудника с 0 единиц -->
+                                        {% if (emp.total_assets or 0) == 0 %}
+                                            <form method="post" action="/admin/inventory-control/{{ emp.id }}/toggle-no-assets" style="display: inline;" onsubmit="return confirm('{{ 'Снять отметку об отсутствии техники' if emp.no_assets_confirmed else 'Установить отметку об отсутствии техники' }} для {{ emp.fio }}?');">
+                                                <input type="hidden" name="confirmed" value="{{ '0' if emp.no_assets_confirmed else '1' }}">
+                                                <button type="submit" class="inv-action-btn" title="{{ 'Снять отметку об отсутствии техники' if emp.no_assets_confirmed else 'Отметить: техника отсутствует' }}" style="{{ 'color: #166534; font-weight: 600;' if emp.no_assets_confirmed else '' }}">
+                                                    {{ '✓ Техника отс.' if emp.no_assets_confirmed else '+ Нет техники' }}
+                                                </button>
+                                            </form>
+                                        {% endif %}
+
+                                        <!-- Напомнить на email (если не завершено и есть email и не подтверждено отсутствие техники) -->
+                                        {% if emp.email and emp.status != 'completed' and not emp.no_assets_confirmed %}
                                             <form method="post" action="/admin/inventory-control/{{ emp.id }}/remind" style="display: inline;" onsubmit="return confirm('Отправить письмо-напоминание на {{ emp.email }}? (Ранее отправлено: {{ emp.remind_count or 0 }})');">
                                                 <button type="submit" class="inv-action-btn inv-action-btn--mail" title="Отправить напоминание на почту (ранее отправлено: {{ emp.remind_count or 0 }})">
                                                     ✉️{% if (emp.remind_count or 0) > 0 %}<span class="inv-badge-count">{{ emp.remind_count }}</span>{% endif %}
@@ -296,8 +315,24 @@
             <button type="button" class="inv-modal__close" onclick="closeAssetsModal()">&times;</button>
         </div>
 
-        <div id="modalAssetsBody" style="max-height: 60vh; overflow-y: auto; margin-top: 1rem;">
+        <div id="modalAssetsBody" style="max-height: 55vh; overflow-y: auto; margin-top: 1rem;">
             <!-- Наполняется динамически через JS -->
+        </div>
+
+        <!-- Блок администратора: Отметка об отсутствии техники -->
+        <div id="modalNoAssetsAdminBlock" style="display: none; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.85rem 1rem; margin-top: 1rem;">
+            <form id="adminToggleNoAssetsForm" method="post" action="" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+                <div>
+                    <label style="font-size: 0.92rem; font-weight: 600; color: #1e293b; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin: 0;">
+                        <input type="checkbox" id="modalNoAssetsCheckbox" name="confirmed" value="1" style="width: 18px; height: 18px; cursor: pointer;">
+                        <span>Корпоративная техника отсутствует (подтверждено)</span>
+                    </label>
+                    <div id="modalNoAssetsDetails" style="font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; margin-left: 1.6rem;"></div>
+                </div>
+                <button type="submit" class="auth-form__button" style="width: auto; padding: 0.45rem 1rem; font-size: 0.85rem;">
+                    Сохранить отметку
+                </button>
+            </form>
         </div>
 
         <div style="display: flex; justify-content: flex-end; margin-top: 1.25rem;">
@@ -323,9 +358,13 @@ function applyFilters() {
     
     rows.forEach(row => {
         const rowStatus = row.getAttribute('data-status');
+        const rowNoAssets = row.getAttribute('data-no-assets');
         const rowSearch = row.getAttribute('data-search') || '';
         
-        const matchStatus = (currentStatusFilter === 'all') || (rowStatus === currentStatusFilter);
+        let matchStatus = (currentStatusFilter === 'all') || (rowStatus === currentStatusFilter);
+        if (currentStatusFilter === 'no_assets' && rowNoAssets === 'true') {
+            matchStatus = true;
+        }
         const matchQuery = !query || rowSearch.includes(query);
         
         if (matchStatus && matchQuery) {
@@ -463,7 +502,7 @@ function switchAddTab(tab) {
     }
 }
 
-function openAssetsModal(assets, fio, status, invCount, totalCount) {
+function openAssetsModal(assets, fio, status, invCount, totalCount, empId, noAssetsConfirmed, confirmedAt, confirmedBy) {
     document.getElementById('modalEmployeeFio').textContent = fio;
     document.getElementById('modalEmployeeSub').textContent = `Проведено: ${invCount} из ${totalCount} ед. техники`;
     
@@ -515,6 +554,26 @@ function openAssetsModal(assets, fio, status, invCount, totalCount) {
         });
         html += '</div>';
         body.innerHTML = html;
+    }
+
+    const adminBlock = document.getElementById('modalNoAssetsAdminBlock');
+    if (adminBlock && empId) {
+        adminBlock.style.display = 'block';
+        const form = document.getElementById('adminToggleNoAssetsForm');
+        if (form) form.action = `/admin/inventory-control/${empId}/toggle-no-assets`;
+        const cb = document.getElementById('modalNoAssetsCheckbox');
+        if (cb) cb.checked = !!noAssetsConfirmed;
+        const details = document.getElementById('modalNoAssetsDetails');
+        if (details) {
+            if (noAssetsConfirmed) {
+                let byText = confirmedBy ? ` (кем: ${escapeHtml(confirmedBy)})` : '';
+                details.innerHTML = `<span style="color: #166534; font-weight: 600;">✓ Отметка установлена:</span> ${escapeHtml(confirmedAt || '')}${byText}. Статус в отчёте: <strong>Пройдена</strong>.`;
+            } else {
+                details.textContent = 'Отметка не установлена. Вы можете отметить отсутствие техники вручную.';
+            }
+        }
+    } else if (adminBlock) {
+        adminBlock.style.display = 'none';
     }
     
     document.getElementById('assetsModal').style.display = 'flex';
