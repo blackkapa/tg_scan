@@ -1611,8 +1611,18 @@ html, body {
    Inventory Control Dashboard Styles
    ========================================================================== */
 
+.site-main--wide,
+.site-main:has(.hero__card--wide) {
+    max-width: 1440px !important;
+    width: 96% !important;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+}
+
 .hero__card--wide {
-    max-width: 1200px !important;
+    max-width: 1440px !important;
+    width: 100%;
+    padding: 1.5rem 1.25rem;
 }
 
 .inv-kpi-grid {
@@ -1744,15 +1754,15 @@ html, body {
     background: #f8fafc;
     color: #475569;
     font-weight: 600;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    padding: 0.75rem 1rem;
+    padding: 0.65rem 0.65rem;
     border-bottom: 1px solid #e2e8f0;
 }
 
 .inv-table td {
-    padding: 0.85rem 1rem;
+    padding: 0.65rem 0.65rem;
     border-bottom: 1px solid #f1f5f9;
     vertical-align: middle;
 }
@@ -1763,13 +1773,15 @@ html, body {
 
 .inv-emp-fio {
     color: #1e293b;
-    font-size: 0.95rem;
+    font-size: 0.92rem;
+    line-height: 1.3;
 }
 
 .inv-emp-sub {
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     color: #64748b;
-    margin-top: 0.15rem;
+    margin-top: 0.2rem;
+    word-break: break-all;
 }
 
 .inv-badge {
@@ -1780,23 +1792,33 @@ html, body {
     border-radius: 999px;
     font-size: 0.78rem;
     font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.inv-badge-mini {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 500;
 }
 
 .inv-badge--success {
-    background: #dcfce7;
-    color: #15803d;
-    border: 1px solid #86efac;
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #a7f3d0;
 }
 
 .inv-badge--warning {
-    background: #fef3c7;
-    color: #b45309;
+    background: #fffbeb;
+    color: #92400e;
     border: 1px solid #fde68a;
 }
 
 .inv-badge--danger {
-    background: #fee2e2;
-    color: #b91c1c;
+    background: #fef2f2;
+    color: #991b1b;
     border: 1px solid #fca5a5;
 }
 
@@ -1814,7 +1836,7 @@ html, body {
 
 .inv-progress-bar {
     width: 100%;
-    height: 8px;
+    height: 7px;
     background: #e2e8f0;
     border-radius: 999px;
     overflow: hidden;
@@ -1839,19 +1861,21 @@ html, body {
 
 .inv-actions {
     display: inline-flex;
-    gap: 0.35rem;
+    gap: 0.25rem;
     align-items: center;
+    white-space: nowrap;
 }
 
 .inv-action-btn {
     border: 1px solid #cbd5e1;
     background: #ffffff;
     color: #334155;
-    padding: 0.3rem 0.55rem;
+    padding: 0.26rem 0.45rem;
     border-radius: 6px;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     cursor: pointer;
     transition: all 0.15s ease;
+    white-space: nowrap;
 }
 
 .inv-action-btn:hover {

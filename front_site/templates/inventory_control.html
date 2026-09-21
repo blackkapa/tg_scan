@@ -2,9 +2,11 @@
 
 {% block title %}Контроль инвентаризации сотрудников{% endblock %}
 
+{% block main_class %} site-main--wide{% endblock %}
+
 {% block content %}
 <section class="hero" style="padding-top: 1.5rem;">
-    <div class="hero__card hero__card--wide" style="max-width: 1200px; width: 100%;">
+    <div class="hero__card hero__card--wide" style="max-width: 1440px; width: 100%;">
         
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;">
             <div>
@@ -85,14 +87,14 @@
                 <table class="inv-table" id="employeesTable">
                     <thead>
                         <tr>
-                            <th style="width: 40px; text-align: center;">
+                            <th style="width: 36px; text-align: center; padding: 0.65rem 0.35rem;">
                                 <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" title="Выбрать всех видимых сотрудников" style="cursor: pointer; width: 16px; height: 16px;">
                             </th>
-                            <th style="width: 26%;">Сотрудник</th>
-                            <th style="width: 14%;">Статус</th>
-                            <th style="width: 21%;">Прогресс инвентаризации</th>
-                            <th style="width: 17%;">Посл. проверка / Напоминания</th>
-                            <th style="width: 18%; text-align: right;">Действия</th>
+                            <th style="width: 25%; min-width: 170px;">Сотрудник</th>
+                            <th style="width: 14%; min-width: 120px;">Статус</th>
+                            <th style="width: 19%; min-width: 130px;">Прогресс</th>
+                            <th style="width: 18%; min-width: 140px;">Посл. проверка</th>
+                            <th style="text-align: right; white-space: nowrap;">Действия</th>
                         </tr>
                     </thead>
                     <tbody>
