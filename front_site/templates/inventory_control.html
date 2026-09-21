@@ -114,10 +114,8 @@
                                     {% endif %}
                                 </td>
                                 <td>
-                                    {% if emp.no_assets_confirmed %}
-                                        <span class="inv-badge inv-badge--success" title="Сотрудник подтвердил отсутствие корпоративной техники">✓ Пройдена (нет техники)</span>
-                                    {% elif emp.status == 'completed' %}
-                                        <span class="inv-badge inv-badge--success">✓ Пройдена</span>
+                                    {% if emp.status == 'completed' or emp.no_assets_confirmed %}
+                                        <span class="inv-badge inv-badge--success" title="{{ 'Подтверждено отсутствие корпоративной техники' if emp.no_assets_confirmed else 'Инвентаризация пройдена' }}">✓ Пройдена</span>
                                     {% elif emp.status == 'in_progress' %}
                                         <span class="inv-badge inv-badge--warning">⏳ В процессе</span>
                                     {% elif emp.status == 'not_started' %}
@@ -364,9 +362,6 @@ function applyFilters() {
         const rowSearch = row.getAttribute('data-search') || '';
         
         let matchStatus = (currentStatusFilter === 'all') || (rowStatus === currentStatusFilter);
-        if (currentStatusFilter === 'no_assets' && rowNoAssets === 'true') {
-            matchStatus = true;
-        }
         const matchQuery = !query || rowSearch.includes(query);
         
         if (matchStatus && matchQuery) {
