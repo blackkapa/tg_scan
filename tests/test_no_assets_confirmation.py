@@ -212,6 +212,27 @@ class TestNoAssetsConfirmation(unittest.TestCase):
         self.assertEqual(non_admin_resp.status_code, 302)
         self.assertEqual(non_admin_resp.headers["location"], "/assets")
 
+        # Unauthenticated suggest request -> 401
+        anon_suggest = client.get("/api/employees/suggest?q=козлов")
+        self.assertEqual(anon_suggest.status_code, 401)
+
+        # Authenticate as regular non-admin user
+        reg_email = "user@asg.ru"
+        reg_fio = "Обычный Пользователь"
+        with patch("front_site.app.ADMIN_EMAILS", ["admin@asg.ru"]), \
+             patch("front_site.app._build_atracker_client") as mock_cb, \
+             patch("front_site.app.send_code_email", return_value=(True, "")):
+            mock_at = AsyncMock()
+            mock_at.get_employees.return_value = [{"sFullName": reg_fio, "sEmail": reg_email, "sLoginName": "user"}]
+            mock_cb.return_value = mock_at
+            client.post("/start-auth", data={"identifier": reg_email})
+            code_u = create_code(reg_fio, reg_email)
+            client.post("/enter-code", data={"code": code_u})
+
+        # Non-admin suggest request -> 403 forbidden
+        non_admin_suggest = client.get("/api/employees/suggest?q=козлов")
+        self.assertEqual(non_admin_suggest.status_code, 403)
+
         # Now authenticate as admin
         admin_email = "admin@asg.ru"
         admin_fio = "Администратор Системы"
@@ -277,7 +298,7 @@ class TestNoAssetsConfirmation(unittest.TestCase):
             self.assertEqual(admin_view_resp2.status_code, 200)
             self.assertIn("Подтверждено: техника отсутствует", admin_view_resp2.text)
 
-            # Test /api/employees/suggest
+            # Test /api/employees/suggest as admin
             suggest_resp = client.get("/api/employees/suggest?q=козлов")
             self.assertEqual(suggest_resp.status_code, 200)
             data = suggest_resp.json()
@@ -289,6 +310,15 @@ class TestNoAssetsConfirmation(unittest.TestCase):
             # Test search using target_email_override
             override_resp = client.post("/admin", data={"identifier": "Козлов", "target_email_override": "kozlov@asg.ru"})
             self.assertEqual(override_resp.status_code, 302)
+
+        # Test audit action and labels parsing
+        from front_site.app import AUDIT_ACTION_MAP, _parse_audit_details
+        self.assertIn("admin_target_toggle_no_assets", AUDIT_ACTION_MAP)
+        parsed_details = dict(_parse_audit_details("target_fio=Козлов; target_email=kozlov@asg.ru; confirmed=True; by=Админ"))
+        self.assertEqual(parsed_details.get("Сотрудник"), "Козлов")
+        self.assertEqual(parsed_details.get("Email сотрудника"), "kozlov@asg.ru")
+        self.assertEqual(parsed_details.get("Отметка"), "установлена")
+        self.assertEqual(parsed_details.get("Кто установил"), "Админ")
 
 
 if __name__ == "__main__":

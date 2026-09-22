@@ -2822,6 +2822,7 @@ AUDIT_ACTION_MAP: dict[str, tuple[str, str, str]] = {
     "inventory_control_batch_remind": ("Напоминания отправлены", "inventory", "success"),
     "inventory_control_batch_delete": ("Сотрудники удалены из контроля", "inventory", "warning"),
     "inventory_control_toggle_no_assets": ("Отметка отсутствия техники изменена", "inventory", "info"),
+    "admin_target_toggle_no_assets": ("Отметка отсутствия техники (админ)", "inventory", "info"),
     "confirm_no_assets": ("Подтверждение отсутствия техники", "inventory", "success"),
     "settings_open": ("Просмотр настроек", "system", "info"),
     "settings_save": ("Сохранение настроек", "system", "success"),
@@ -2836,7 +2837,11 @@ AUDIT_DETAIL_LABELS = {
     "transfer_id": "Перемещение",
     "user_fio": "Сотрудник",
     "fio": "Сотрудник",
+    "target_fio": "Сотрудник",
     "email": "Email",
+    "target_email": "Email сотрудника",
+    "confirmed": "Отметка",
+    "by": "Кто установил",
     "to": "Получатель",
     "owner": "Владелец",
     "photos": "Фотографий",
@@ -2865,7 +2870,9 @@ def _parse_audit_details(details: str) -> list[tuple[str, str]]:
             key = key.strip()
             value = value.strip()
             label = AUDIT_DETAIL_LABELS.get(key, key.replace("_", " ").capitalize())
-            if value.lower() in ("true", "false"):
+            if key == "confirmed":
+                value = "установлена" if value.lower() in ("true", "1") else "снята"
+            elif value.lower() in ("true", "false"):
                 value = "успешен" if value.lower() == "true" else "не выполнен"
             result.append((label, value or "—"))
         else:
@@ -5308,6 +5315,8 @@ async def api_employees_suggest(request: Request, q: str = "", limit: int = 15):
     """Живой поиск сотрудников для автодополнения (по ФИО, логину, email)."""
     if not request.session.get("user_email"):
         return JSONResponse({"items": [], "error": "unauthorized"}, status_code=401)
+    if not request.session.get("is_admin"):
+        return JSONResponse({"items": [], "error": "forbidden"}, status_code=403)
 
     qn = (q or "").strip().lower()
     if not qn:
