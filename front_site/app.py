@@ -3300,10 +3300,12 @@ async def settings_save(
         )
     except OSError as exc:
         if exc.errno in (errno.EACCES, errno.EPERM):
+            target_path = exc.filename or CONFIG_PATH
+            data_dir = Path(CONFIG_PATH).parent / "data"
             request.session["flash_message"] = (
-                f"Нет прав на запись в файл конфигурации ({CONFIG_PATH}). "
-                "На сервере от root: "
-                f"chown www-data:www-data {CONFIG_PATH}"
+                f"Нет прав на запись в файл конфигурации ({target_path}). "
+                "Выполните на сервере от root: "
+                f"chown -R www-data:www-data {CONFIG_PATH} {data_dir}"
             )
         else:
             request.session["flash_message"] = (
