@@ -62,6 +62,9 @@ from config import (
     WEB_TRANSFER_ENABLED,
     WEB_DISCREPANCY_ENABLED,
     WEB_DISCREPANCY_BUTTON_ENABLED,
+    AUTH_ALLOW_EMAIL,
+    AUTH_ALLOW_FIO,
+    AUTH_ALLOW_LOGIN,
     YANDEX_MESSENGER_ENABLED,
     YANDEX_MESSENGER_TOKEN,
     reload_web_flags_from_disk,
@@ -2562,6 +2565,9 @@ def _save_settings_config(
     web_transfer_enabled: bool = True,
     web_discrepancy_enabled: bool = True,
     web_discrepancy_button_enabled: bool = True,
+    auth_allow_email: bool = True,
+    auth_allow_fio: bool = False,
+    auth_allow_login: bool = False,
     settings_secret: str = "",
     atracker_verify_ssl: bool = False,
     yandex_messenger_enabled: bool = False,
@@ -2614,6 +2620,9 @@ def _save_settings_config(
         "discrepancy_button_enabled",
         "true" if web_discrepancy_button_enabled else "false",
     )
+    cfg.set("web", "auth_allow_email", "true" if auth_allow_email else "false")
+    cfg.set("web", "auth_allow_fio", "true" if auth_allow_fio else "false")
+    cfg.set("web", "auth_allow_login", "true" if auth_allow_login else "false")
     if settings_secret and settings_secret.strip():
         cfg.set("web", "settings_secret", settings_secret.strip())
 
@@ -2773,12 +2782,15 @@ def _build_qr_label_png(asset_name: str, serial: str, invent: str, asset_id: int
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    """Стартовая страница: форма для ввода ФИО, логина или почты."""
+    """Стартовая страница: форма для ввода корпоративной почты (или ФИО/логина)."""
     message = request.session.pop("flash_message", None)
     context = {
         "request": request,
         "title": "Инвентаризация техники",
         "message": message,
+        "auth_allow_email": AUTH_ALLOW_EMAIL,
+        "auth_allow_fio": AUTH_ALLOW_FIO,
+        "auth_allow_login": AUTH_ALLOW_LOGIN,
     }
     return render_template("index.html", context)
 
@@ -2975,6 +2987,16 @@ async def settings_page(request: Request) -> HTMLResponse:
             cfg.get("web", "discrepancy_button_enabled", fallback="true") or "true"
         ).strip().lower()
         web_discrepancy_button_enabled = _dbe not in ("0", "false", "no", "off")
+        _aae_email = (cfg.get("web", "auth_allow_email", fallback="true") or "true").strip().lower()
+        auth_allow_email = _aae_email not in ("0", "false", "no", "off")
+        _aae_fio = (cfg.get("web", "auth_allow_fio", fallback="false") or "false").strip().lower()
+        auth_allow_fio = _aae_fio in ("1", "true", "yes", "on")
+        _aae_login = (cfg.get("web", "auth_allow_login", fallback="false") or "false").strip().lower()
+        auth_allow_login = _aae_login in ("1", "true", "yes", "on")
+    else:
+        auth_allow_email = True
+        auth_allow_fio = False
+        auth_allow_login = False
 
     yandex_messenger_enabled = False
     yandex_messenger_token = ""
@@ -3086,6 +3108,9 @@ async def settings_page(request: Request) -> HTMLResponse:
             "web_transfer_enabled": web_transfer_enabled,
             "web_discrepancy_enabled": web_discrepancy_enabled,
             "web_discrepancy_button_enabled": web_discrepancy_button_enabled,
+            "auth_allow_email": auth_allow_email,
+            "auth_allow_fio": auth_allow_fio,
+            "auth_allow_login": auth_allow_login,
             "smtp_host": smtp_host,
             "smtp_port": smtp_port,
             "smtp_use_ssl": smtp_use_ssl,
@@ -3152,6 +3177,9 @@ async def settings_save(
     web_transfer_enabled: str = Form("0"),
     web_discrepancy_enabled: str = Form("0"),
     web_discrepancy_button_enabled: str = Form("0"),
+    web_auth_allow_email: str = Form("0"),
+    web_auth_allow_fio: str = Form("0"),
+    web_auth_allow_login: str = Form("0"),
     yandex_messenger_enabled: str = Form("0"),
     yandex_messenger_token: str = Form(""),
     reminder_subject: str = Form(""),
@@ -3217,6 +3245,19 @@ async def settings_save(
             web_discrepancy_button_enabled=(
                 str(web_discrepancy_button_enabled).strip() in ("1", "true", "on", "yes")
             ),
+            auth_allow_email=(
+                str(web_auth_allow_email).strip() in ("1", "true", "on", "yes")
+                if (str(web_auth_allow_email).strip() in ("1", "true", "on", "yes") or
+                    str(web_auth_allow_fio).strip() in ("1", "true", "on", "yes") or
+                    str(web_auth_allow_login).strip() in ("1", "true", "on", "yes"))
+                else True
+            ),
+            auth_allow_fio=(
+                str(web_auth_allow_fio).strip() in ("1", "true", "on", "yes")
+            ),
+            auth_allow_login=(
+                str(web_auth_allow_login).strip() in ("1", "true", "on", "yes")
+            ),
             settings_secret=settings_secret.strip(),
             yandex_messenger_enabled=(
                 str(yandex_messenger_enabled).strip() in ("1", "true", "on", "yes")
@@ -3238,6 +3279,9 @@ async def settings_save(
         globals()["WEB_DISCREPANCY_BUTTON_ENABLED"] = (
             _config_runtime.WEB_DISCREPANCY_BUTTON_ENABLED
         )
+        globals()["AUTH_ALLOW_EMAIL"] = _config_runtime.AUTH_ALLOW_EMAIL
+        globals()["AUTH_ALLOW_FIO"] = _config_runtime.AUTH_ALLOW_FIO
+        globals()["AUTH_ALLOW_LOGIN"] = _config_runtime.AUTH_ALLOW_LOGIN
         globals()["YANDEX_MESSENGER_ENABLED"] = _config_runtime.YANDEX_MESSENGER_ENABLED
         globals()["YANDEX_MESSENGER_TOKEN"] = _config_runtime.YANDEX_MESSENGER_TOKEN
         restarted = _restart_front_site_service()
@@ -3311,13 +3355,20 @@ def _check_auth_rate_limit(ip: str, email: str) -> str | None:
 
 @app.post("/start-auth")
 async def start_auth(request: Request, identifier: str = Form(...)):
-    """Получаем ФИО/логин/почту, ищем сотрудника и отправляем код на корпоративную почту."""
+    """Получаем почту/ФИО/логин, ищем сотрудника и отправляем код на корпоративную почту."""
     identifier = (identifier or "").strip()
     if not identifier:
+        if not AUTH_ALLOW_FIO and not AUTH_ALLOW_LOGIN:
+            empty_msg = "Введите корпоративную почту."
+        else:
+            empty_msg = "Введите ФИО, логин или почту."
         context = {
             "request": request,
             "title": "Инвентаризация техники",
-            "message": "Введите ФИО, логин или почту.",
+            "message": empty_msg,
+            "auth_allow_email": AUTH_ALLOW_EMAIL,
+            "auth_allow_fio": AUTH_ALLOW_FIO,
+            "auth_allow_login": AUTH_ALLOW_LOGIN,
         }
         return render_template("index.html", context, status_code=400)
 
@@ -3329,15 +3380,28 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "request": request,
             "title": "Инвентаризация техники",
             "message": "Не удалось загрузить список сотрудников из A‑Tracker. Попробуйте позже.",
+            "auth_allow_email": AUTH_ALLOW_EMAIL,
+            "auth_allow_fio": AUTH_ALLOW_FIO,
+            "auth_allow_login": AUTH_ALLOW_LOGIN,
         }
         return render_template("index.html", context, status_code=502)
 
-    fio, email, error = find_employee_by_input(employees, identifier, EMAIL_DOMAIN_ALLOWED)
+    fio, email, error = find_employee_by_input(
+        employees,
+        identifier,
+        EMAIL_DOMAIN_ALLOWED,
+        allow_email=AUTH_ALLOW_EMAIL,
+        allow_fio=AUTH_ALLOW_FIO,
+        allow_login=AUTH_ALLOW_LOGIN,
+    )
     if error:
         context = {
             "request": request,
             "title": "Инвентаризация техники",
             "message": error,
+            "auth_allow_email": AUTH_ALLOW_EMAIL,
+            "auth_allow_fio": AUTH_ALLOW_FIO,
+            "auth_allow_login": AUTH_ALLOW_LOGIN,
         }
         return render_template("index.html", context, status_code=400)
 
@@ -3353,6 +3417,9 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "request": request,
             "title": "Инвентаризация техники",
             "message": rate_err,
+            "auth_allow_email": AUTH_ALLOW_EMAIL,
+            "auth_allow_fio": AUTH_ALLOW_FIO,
+            "auth_allow_login": AUTH_ALLOW_LOGIN,
         }
         return render_template("index.html", context, status_code=429)
 
@@ -3375,6 +3442,9 @@ async def start_auth(request: Request, identifier: str = Form(...)):
             "request": request,
             "title": "Инвентаризация техники",
             "message": send_error,
+            "auth_allow_email": AUTH_ALLOW_EMAIL,
+            "auth_allow_fio": AUTH_ALLOW_FIO,
+            "auth_allow_login": AUTH_ALLOW_LOGIN,
         }
         return render_template("index.html", context, status_code=502)
 

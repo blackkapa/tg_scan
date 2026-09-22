@@ -291,6 +291,58 @@
 
             <!-- ВКЛАДКА 3: Доступы и Рассылки -->
             <div class="settings-panel" id="tab-access" role="tabpanel">
+                <!-- Auth Methods Card -->
+                <div class="settings-section-card">
+                    <div class="settings-section-card__header">
+                        <div>
+                            <h2 class="settings-section-card__title">Способы авторизации на сайте</h2>
+                            <p class="settings-section-card__desc">Управление разрешёнными вариантами идентификации сотрудников на стартовой странице</p>
+                        </div>
+                    </div>
+
+                    <div class="settings-module-card">
+                        <div class="settings-module-card__info">
+                            <div class="settings-module-card__title">Вход по корпоративной почте (@asg.ru)</div>
+                            <div class="settings-module-card__desc">
+                                Пользователь указывает корпоративный email для получения одноразового проверочного кода.
+                            </div>
+                        </div>
+                        <label class="switch" title="Разрешить вход по корпоративной почте">
+                            <input type="checkbox" name="web_auth_allow_email" value="1"
+                                   {% if config.auth_allow_email %}checked{% endif %}>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="settings-module-card">
+                        <div class="settings-module-card__info">
+                            <div class="settings-module-card__title">Вход по ФИО сотрудника</div>
+                            <div class="settings-module-card__desc">
+                                Поиск сотрудника по фамилии, имени и отчеству в базе A-Tracker с отправкой кода на привязанную почту.
+                            </div>
+                        </div>
+                        <label class="switch" title="Разрешить вход по ФИО">
+                            <input type="checkbox" name="web_auth_allow_fio" value="1"
+                                   {% if config.auth_allow_fio %}checked{% endif %}>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="settings-module-card">
+                        <div class="settings-module-card__info">
+                            <div class="settings-module-card__title">Вход по логину учётной записи</div>
+                            <div class="settings-module-card__desc">
+                                Поиск сотрудника по доменному логину Active Directory / A-Tracker с отправкой кода на привязанную почту.
+                            </div>
+                        </div>
+                        <label class="switch" title="Разрешить вход по логину">
+                            <input type="checkbox" name="web_auth_allow_login" value="1"
+                                   {% if config.auth_allow_login %}checked{% endif %}>
+                            <span class="switch-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
                 <!-- Corporate Access Card -->
                 <div class="settings-section-card">
                     <div class="settings-section-card__header">

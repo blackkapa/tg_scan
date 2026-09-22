@@ -137,6 +137,11 @@ WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
 # Кнопка «Сообщить о несоответствии» на /assets (false — скрыть кнопку; маршруты /discrepancy/* остаются при discrepancy_enabled)
 WEB_DISCREPANCY_BUTTON_ENABLED = _getbool("web", "discrepancy_button_enabled", True)
 
+# Способы авторизации на стартовой странице (по умолчанию только почта)
+AUTH_ALLOW_EMAIL = _getbool("web", "auth_allow_email", True)
+AUTH_ALLOW_FIO = _getbool("web", "auth_allow_fio", False)
+AUTH_ALLOW_LOGIN = _getbool("web", "auth_allow_login", False)
+
 
 def _get_session_secret() -> str:
     """Секретный ключ для cookie-сессий.
@@ -232,6 +237,10 @@ def reload_web_flags_from_disk() -> None:
     WEB_TRANSFER_ENABLED = _getbool("web", "transfer_enabled", True)
     WEB_DISCREPANCY_ENABLED = _getbool("web", "discrepancy_enabled", True)
     WEB_DISCREPANCY_BUTTON_ENABLED = _getbool("web", "discrepancy_button_enabled", True)
+    global AUTH_ALLOW_EMAIL, AUTH_ALLOW_FIO, AUTH_ALLOW_LOGIN
+    AUTH_ALLOW_EMAIL = _getbool("web", "auth_allow_email", True)
+    AUTH_ALLOW_FIO = _getbool("web", "auth_allow_fio", False)
+    AUTH_ALLOW_LOGIN = _getbool("web", "auth_allow_login", False)
     SESSION_SECRET_KEY = _get_session_secret()
     # yandex messenger
     global YANDEX_MESSENGER_ENABLED, YANDEX_MESSENGER_TOKEN

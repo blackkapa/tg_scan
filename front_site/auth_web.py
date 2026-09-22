@@ -110,16 +110,27 @@ def find_employee_by_input(
     employees: List[Dict[str, Any]],
     user_input: str,
     allowed_domain: str,
+    allow_email: bool = True,
+    allow_fio: bool = True,
+    allow_login: bool = True,
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Ищем сотрудника по ФИО, логину или почте с проверкой домена."""
+    """Ищем сотрудника по ФИО, логину или почте с учётом разрешённых методов входа."""
+    allowed_label = "@" + allowed_domain.strip().lstrip("@")
     if not user_input or not user_input.strip():
+        if not allow_fio and not allow_login:
+            return (None, None, "Введите корпоративную почту.")
+        if not allow_email and allow_fio and not allow_login:
+            return (None, None, "Введите ФИО.")
+        if not allow_email and not allow_fio and allow_login:
+            return (None, None, "Введите логин.")
         return (None, None, "Введите ФИО, логин или почту.")
 
     raw = user_input.strip()
-    allowed_label = "@" + allowed_domain.strip().lstrip("@")
 
     # Ввели почту
     if "@" in raw:
+        if not allow_email:
+            return (None, None, "Вход по корпоративной почте временно отключён.")
         if not _match_domain(raw, allowed_domain):
             return (None, None, f"Разрешена только корпоративная почта {allowed_label}. Указан другой домен.")
         email = raw.strip()
@@ -132,7 +143,14 @@ def find_employee_by_input(
                 return (fio or "—", email, None)
         return (None, None, "Сотрудник с такой почтой не найден в системе учёта.")
 
-    # ФИО или логин
+    # Ввели ФИО или логин
+    if not allow_fio and not allow_login:
+        return (
+            None,
+            None,
+            f"Вход по ФИО и логину временно отключён. Пожалуйста, укажите корпоративную почту {allowed_label}.",
+        )
+
     norm_fio = _norm(raw)
     norm_login_input = _norm_login(raw)
     for emp in employees:
@@ -141,13 +159,27 @@ def find_employee_by_input(
         fio = (emp.get("sFullName") or emp.get("sfullname") or "").strip()
         login = (emp.get("sLoginName") or emp.get("sloginname") or "").strip()
         email = (emp.get("sEmail") or emp.get("semail") or "").strip()
-        if _norm(fio) == norm_fio or _norm_login(login) == norm_login_input:
+        fio_matched = (_norm(fio) == norm_fio)
+        login_matched = (_norm_login(login) == norm_login_input)
+
+        if (fio_matched and allow_fio) or (login_matched and allow_login):
             if not email:
                 return (None, None, "У сотрудника не указана почта в системе. Обратитесь к системному администратору.")
             if not _match_domain(email, allowed_domain):
                 return (None, None, f"У сотрудника указана почта не с доменом {allowed_label}. Вход только через почту {allowed_label}.")
             return (fio or "—", email, None)
-    return (None, None, "Сотрудник не найден. Проверьте ФИО или логин и попробуйте снова.")
+        elif fio_matched and not allow_fio:
+            return (None, None, f"Вход по ФИО временно отключён. Пожалуйста, укажите корпоративную почту {allowed_label}.")
+        elif login_matched and not allow_login:
+            return (None, None, f"Вход по логину временно отключён. Пожалуйста, укажите корпоративную почту {allowed_label}.")
+
+    if allow_fio and allow_login:
+        return (None, None, "Сотрудник не найден. Проверьте ФИО или логин и попробуйте снова.")
+    if allow_fio:
+        return (None, None, "Сотрудник не найден. Проверьте ФИО и попробуйте снова.")
+    if allow_login:
+        return (None, None, "Сотрудник не найден. Проверьте логин и попробуйте снова.")
+    return (None, None, f"Сотрудник не найден. Пожалуйста, укажите корпоративную почту {allowed_label}.")
 
 
 def employee_id_by_email(employees: List[Dict[str, Any]], email: str) -> Optional[int]:

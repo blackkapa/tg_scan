@@ -78,8 +78,12 @@ html, body {
 .site-header__logo-mark {
     width: 28px;
     height: 28px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, #1B5BB5, #3FA9F5);
+    display: inline-block;
+    background-image: url('asg_logo.png');
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    flex-shrink: 0;
 }
 
 .site-header__title {

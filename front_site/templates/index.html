@@ -7,18 +7,66 @@
     <div class="hero__card">
         <h1 class="hero__title">Инвентаризация техники</h1>
         <p class="page-lead">
-            Войдите под корпоративной учётной записью: введите <strong>ФИО</strong>, <strong>логин</strong> или почту <strong>@asg.ru</strong>. На почту придёт одноразовый код (действует несколько минут).
+            {% if not auth_allow_fio and not auth_allow_login %}
+                Войдите под корпоративной учётной записью, введя корпоративную почту. На нее придёт одноразовый код (действует несколько минут).
+            {% elif auth_allow_fio and auth_allow_login %}
+                Войдите под корпоративной учётной записью: введите <strong>ФИО</strong>, <strong>логин</strong> или почту <strong>@asg.ru</strong>. На почту придёт одноразовый код (действует несколько минут).
+            {% elif auth_allow_fio %}
+                Войдите под корпоративной учётной записью: введите <strong>ФИО</strong> или почту <strong>@asg.ru</strong>. На почту придёт одноразовый код (действует несколько минут).
+            {% elif auth_allow_login %}
+                Войдите под корпоративной учётной записью: введите <strong>логин</strong> или почту <strong>@asg.ru</strong>. На почту придёт одноразовый код (действует несколько минут).
+            {% else %}
+                Войдите под корпоративной учётной записью, введя корпоративную почту. На нее придёт одноразовый код (действует несколько минут).
+            {% endif %}
         </p>
         <form method="post" action="/start-auth" class="auth-form">
             <label class="auth-form__label">
-                <span>ФИО, логин или почта</span>
-                <input
-                    class="auth-form__input"
-                    type="text"
-                    name="identifier"
-                    placeholder="Иванов Иван Иванович / ivanov / ivanov@asg.ru"
-                    required
-                >
+                {% if not auth_allow_fio and not auth_allow_login %}
+                    <span>Корпоративная почта</span>
+                    <input
+                        class="auth-form__input"
+                        type="text"
+                        name="identifier"
+                        placeholder="ivanov@asg.ru"
+                        required
+                    >
+                {% elif auth_allow_fio and auth_allow_login %}
+                    <span>ФИО, логин или почта</span>
+                    <input
+                        class="auth-form__input"
+                        type="text"
+                        name="identifier"
+                        placeholder="Иванов Иван Иванович / ivanov / ivanov@asg.ru"
+                        required
+                    >
+                {% elif auth_allow_fio %}
+                    <span>ФИО или почта</span>
+                    <input
+                        class="auth-form__input"
+                        type="text"
+                        name="identifier"
+                        placeholder="Иванов Иван Иванович / ivanov@asg.ru"
+                        required
+                    >
+                {% elif auth_allow_login %}
+                    <span>Логин или почта</span>
+                    <input
+                        class="auth-form__input"
+                        type="text"
+                        name="identifier"
+                        placeholder="ivanov / ivanov@asg.ru"
+                        required
+                    >
+                {% else %}
+                    <span>Корпоративная почта</span>
+                    <input
+                        class="auth-form__input"
+                        type="text"
+                        name="identifier"
+                        placeholder="ivanov@asg.ru"
+                        required
+                    >
+                {% endif %}
             </label>
             {% if message %}
                 <p class="auth-form__message">{{ message }}</p>
